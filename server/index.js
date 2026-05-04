@@ -332,6 +332,7 @@ app.post('/api/webhook', async (req, res) => {
 
     console.log('--- Webhook Received ---');
     console.log('Timestamp:', new Date().toISOString());
+    console.log('RAW BODY:', JSON.stringify(req.body, null, 2));
 
     try {
         const body = req.body;
