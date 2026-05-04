@@ -183,7 +183,7 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
         const total = await pool.query('SELECT COUNT(*) as count FROM clients');
         res.json({
             data: result.rows,
-            total: parseInt(total.rows[0].count),
+            total: Number(total.rows[0].count),
             page,
             limit
         });
