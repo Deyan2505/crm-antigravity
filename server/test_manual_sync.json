@@ -1,0 +1,8 @@
+{
+    "name": "Deyan Manual Test",
+    "email": "manual_test@example.com",
+    "phone": "+359123456789",
+    "company": "Manual Corp",
+    "service_type": "Consultation",
+    "notes": "Testing manual sync to Make.com"
+}
