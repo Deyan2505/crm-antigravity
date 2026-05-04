@@ -334,7 +334,8 @@ app.post('/api/webhook', async (req, res) => {
     console.log('Timestamp:', new Date().toISOString());
 
     try {
-        const { data } = req.body;
+        const body = req.body;
+        const { data } = body;
 
         let clientData = {
             name: 'Unknown',
@@ -345,24 +346,36 @@ app.post('/api/webhook', async (req, res) => {
         };
 
         if (data && data.fields) {
+            // Native Tally webhook format
             data.fields.forEach(field => {
-                const label = field.label || field.key;
-                const value = field.value;
+                const label = field.label || field.key || '';
+                let value = field.value;
 
+                // Multiple choice fields return array — take first item's text
+                if (Array.isArray(value)) {
+                    value = value.map(v => v.text || v).join(', ');
+                }
                 if (!value) return;
 
                 if (label.includes('Име на Клиента') || label === 'Name') {
                     clientData.name = value;
-                } else if (!clientData.name || clientData.name === 'Unknown') {
-                    if (label.includes('Name') || label.includes('Име')) clientData.name = value;
+                } else if (clientData.name === 'Unknown' && (label.includes('Name') || label.includes('Име'))) {
+                    clientData.name = value;
                 }
-
-                if (label.includes('Email') || label.includes('E-mail') || label.includes('Поща') || label.includes('e-mail')) clientData.email = value;
-                if (label.includes('Company') || label.includes('Фирма') || label.includes('Организация') || label.includes('Компания')) clientData.company = value;
-                if (label.includes('Phone') || label.includes('Телефон')) clientData.phone = value;
+                if (label.includes('E-mail') || label.includes('Email') || label.includes('Поща') || label.includes('e-mail')) clientData.email = value;
+                if (label.includes('Компания') || label.includes('Организация') || label.includes('Company') || label.includes('Фирма')) clientData.company = value;
+                if (label.includes('Телефон') || label.includes('Phone')) clientData.phone = value;
                 if (label.includes('списък с опции') || label.includes('Услуга') || label.includes('Service')) clientData.service_type = value;
                 if (label.includes('Разкажи') || label.includes('повече') || label.includes('Note') || label.includes('Message') || label.includes('Описание') || label.includes('Бележк')) clientData.notes = value;
             });
+        } else {
+            // Flat format (Make.com HTTP module sends parsed fields directly)
+            clientData.name = body.name || body['Име на Клиента'] || body.Name || 'Unknown';
+            clientData.email = body.email || body['E-mail'] || body.Email || '';
+            clientData.phone = body.phone || body['Телефон'] || body.Phone || '';
+            clientData.company = body.company || body['Име на Компания / Организация'] || body.Company || '';
+            clientData.service_type = body.service_type || body['Кратък списък с опции'] || '';
+            clientData.notes = body.notes || body['Разкажи ми малко повече'] || '';
         }
 
         // Save to Database
@@ -371,10 +384,17 @@ app.post('/api/webhook', async (req, res) => {
             [clientData.name, clientData.email, clientData.phone, clientData.company, clientData.status, clientData.notes, clientData.service_type]
         );
 
-        // Also log to leads table
+        // Save structured data to leads table
         await pool.query(
             'INSERT INTO leads (source, data) VALUES ($1, $2)',
-            ['Tally', JSON.stringify(req.body)]
+            ['Tally', JSON.stringify({
+                name: clientData.name,
+                email: clientData.email,
+                phone: clientData.phone,
+                company: clientData.company,
+                service_type: clientData.service_type,
+                notes: clientData.notes
+            })]
         );
 
         console.log(`New lead created from Webhook: ${clientData.name}`);
