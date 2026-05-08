@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, TrendingUp, Mail, Zap, CheckCircle, Star, ArrowRight, Globe, Shield } from 'lucide-react';
+import LivingNebulaShader from '../components/ui/living-nebula';
 
 const content = {
     bg: {
@@ -159,6 +160,7 @@ const Landing = () => {
 
     return (
         <div className="landing">
+            <LivingNebulaShader />
             {/* ── NAV ── */}
             <nav className="landing-nav">
                 <div className="landing-container landing-nav-inner">

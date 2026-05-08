@@ -799,7 +799,7 @@ h3 {
 ══════════════════════════════════════ */
 
 .landing {
-    background: #0a0f1e;
+    background: transparent;
     color: #f1f5f9;
     font-family: 'Outfit', 'Inter', system-ui, sans-serif;
     min-height: 100vh;
@@ -1183,7 +1183,8 @@ h3 {
 }
 
 .landing-section-dark {
-    background: #0d1322;
+    background: rgba(13, 19, 34, 0.6);
+    backdrop-filter: blur(4px);
 }
 
 .landing-section-header {
@@ -1344,7 +1345,8 @@ h3 {
 
 /* DEMO */
 .landing-demo-section {
-    background: linear-gradient(180deg, #0a0f1e 0%, #0d1322 100%);
+    background: rgba(10, 15, 30, 0.5);
+    backdrop-filter: blur(4px);
     border-top: 1px solid rgba(99,102,241,0.1);
     border-bottom: 1px solid rgba(99,102,241,0.1);
 }
@@ -1538,7 +1540,8 @@ h3 {
 
 /* FOOTER */
 .landing-footer {
-    background: #060b14;
+    background: rgba(6, 11, 20, 0.7);
+    backdrop-filter: blur(8px);
     border-top: 1px solid rgba(255,255,255,0.06);
     padding: 2rem 0;
 }
