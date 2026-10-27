@@ -83,3 +83,21 @@ test('missing fields give empty strings and Unknown name; missing submission id 
 test('same submission id parses to the same dedupe key (retry)', () => {
     assert.equal(parseTallyPayload(full).submissionId, parseTallyPayload(structuredClone(full)).submissionId);
 });
+
+test('name question "Как да се обръщаме към вас?" maps to name, other fields unaffected', () => {
+    const p = payload([
+        { key: 'question_name', label: 'Как да се обръщаме към вас?', type: 'INPUT_TEXT', value: 'Тестово Име' },
+        { key: 'k_company', label: 'Име на Компания', type: 'INPUT_TEXT', value: 'Тест ЕООД' },
+        { key: 'k_mail', label: 'Имейл', type: 'INPUT_EMAIL', value: 'test@example.invalid' },
+        { key: 'k_tel', label: 'Телефон', type: 'INPUT_PHONE_NUMBER', value: '+359000000000' },
+        { key: 'k_notes', label: 'Разкажи', type: 'TEXTAREA', value: 'Описание' }
+    ]);
+    const r = parseTallyPayload(p);
+    assert.equal(r.name, 'Тестово Име');
+    assert.equal(r.company, 'Тест ЕООД');
+    assert.equal(r.email, 'test@example.invalid');
+    assert.equal(r.phone, '+359000000000');
+    assert.equal(r.notes, 'Описание');
+    assert.equal(parseTallyPayload(p, { name: 'question_name' }).name, 'Тестово Име'); // pinned key path
+});
+

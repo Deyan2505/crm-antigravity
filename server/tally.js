@@ -11,7 +11,7 @@ export function verifyTallySignature(rawBody, header, secret) {
 // Optional TALLY_FIELD_KEYS='{"name":"question_xxx","price_range":"question_yyy"}' pins roles to stable Tally field keys.
 // Roles: name, company, services, price_range, lang, notes. Without a key we fall back to field type / hidden-field name / label.
 const LABEL_FALLBACK = {
-    name: /име|name/i,
+    name: /име|name|обръщаме|казвате/i, // "Как да се обръщаме към вас?" has neither "име" nor "name"
     company: /компани|организаци|фирма|company/i,
     services: /services|услуг|възможности/i,
     price_range: /price_range|бюджет|цена|budget/i,
