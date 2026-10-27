@@ -4,6 +4,8 @@ import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { sendWelcomeEmail } from './services/email.js';
+import { notifyOwner } from './services/notify.js';
+import { ARIE_PATH, saveRawBody, makeArieTallyHandler } from './arieWebhook.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
@@ -34,7 +36,7 @@ app.use(cors({
         callback(new Error('Not allowed by CORS'));
     }
 }));
-app.use(express.json());
+app.use(express.json({ verify: saveRawBody }));
 
 // Rate limiting for auth routes (10 attempts per 15 min per IP)
 const authLimiter = rateLimit({
@@ -111,6 +113,10 @@ app.get('/api/health', (req, res) => {
 
 // Authentication Routes
 app.post('/api/auth/register', authLimiter, async (req, res) => {
+    // Closed by default: every user can read ALL clients/leads (no per-user scoping). Set ALLOW_REGISTRATION=true to reopen.
+    if (process.env.ALLOW_REGISTRATION !== 'true') {
+        return res.status(403).json({ error: 'Registration is closed' });
+    }
     const { name, email, password } = req.body;
 
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
@@ -413,6 +419,9 @@ app.post('/api/webhook', async (req, res) => {
         res.status(500).json({ status: 'error', error: err.message });
     }
 });
+
+// Signed, deduplicated Tally webhook for the ARIE form (separate from the legacy /api/webhook above)
+app.post(ARIE_PATH, makeArieTallyHandler({ pool, notify: notifyOwner }));
 
 // Delete client
 app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
