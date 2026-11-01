@@ -7,6 +7,8 @@ import { spawn } from 'child_process';
 import express from 'express';
 import pg from 'pg';
 import { saveRawBody, makeArieTallyHandler, ARIE_PATH } from '../arieWebhook.js';
+import { ARIE_FORMS } from '../arieForms.js';
+import { payloadFor, portfolioPayload, SAMPLE, PORTFOLIO_TEXT } from './fixtures.js';
 
 // Safety: only ever run against a throwaway local database.
 const DB_URL = process.env.TEST_DATABASE_URL;
@@ -16,12 +18,9 @@ const SECRET = 'int-test-secret';
 const sign = raw => crypto.createHmac('sha256', SECRET).update(raw).digest('base64');
 const pool = new pg.Pool({ connectionString: DB_URL });
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS clients (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, phone TEXT, company TEXT,
-  service_type TEXT, social_platform TEXT, preferred_contact TEXT, notes TEXT, lost_reason TEXT, meeting_date TIMESTAMP,
-  deal_value REAL, status TEXT DEFAULT 'New', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS leads (id SERIAL PRIMARY KEY, source TEXT, data TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`;
+const SCHEMA = fs.readFileSync(new URL('./legacy_schema.sql', import.meta.url), 'utf8');
+const MIGRATION_001 = fs.readFileSync(new URL('../migrations/001_tally_submission.sql', import.meta.url), 'utf8');
+const MIGRATION_002 = fs.readFileSync(new URL('../migrations/002_six_forms.sql', import.meta.url), 'utf8');
 
 const body = (submissionId, extra = []) => ({
     eventType: 'FORM_RESPONSE',
@@ -56,23 +55,105 @@ const post = (obj, { raw = JSON.stringify(obj), sig = sign(raw) } = {}) =>
 const count = async t => Number((await pool.query(`SELECT COUNT(*) c FROM ${t}`)).rows[0].c);
 const tick = () => new Promise(r => setTimeout(r, 50));
 
+// Migrations run over a database that already has CRM data, like production: legacy rows must survive unchanged.
+let legacyBefore, legacyAfter, legacyCols;
+const LEGACY_SNAPSHOT = "SELECT id, name, email, phone, company, service_type, preferred_contact, notes, status, created_at FROM clients WHERE email LIKE '%@legacy.invalid' ORDER BY id";
 before(async () => {
     await pool.query(SCHEMA);
-    await pool.query(fs.readFileSync(new URL('../migrations/002_six_forms.sql', import.meta.url), 'utf8'));
+    await pool.query("DELETE FROM clients WHERE email LIKE '%@legacy.invalid'");
+    await pool.query(`INSERT INTO clients (name, email, phone, service_type, preferred_contact, notes, status) VALUES
+        ('Legacy One', 'one@legacy.invalid', '1', 'Site', 'Phone', 'old note', 'Won'),
+        ('Legacy Two', 'two@legacy.invalid', '2', NULL, NULL, NULL, 'New')`);
+    await pool.query(`INSERT INTO leads (source, data) VALUES ('Tally', '{"name":"Legacy One"}')`);
+    legacyBefore = (await pool.query(LEGACY_SNAPSHOT)).rows;
+    await pool.query(MIGRATION_001);
+    await pool.query(MIGRATION_002);
+    await pool.query(MIGRATION_002); // idempotent: a second run changes nothing and does not fail
+    legacyAfter = (await pool.query(LEGACY_SNAPSHOT)).rows;
+    legacyCols = (await pool.query("SELECT tally_submission_id, tally_form_id, track, project_type FROM clients WHERE email LIKE '%@legacy.invalid'")).rows;
     process.env.ARIE_TALLY_SIGNING_SECRET = SECRET;
     await startHandlerServer();
 });
 after(async () => { server.close(); await pool.end(); });
 beforeEach(async () => {
     notified = []; logs = [];
-    await pool.query('TRUNCATE clients, leads RESTART IDENTITY');
+    await pool.query('TRUNCATE clients, leads RESTART IDENTITY'); // throwaway test database only (asserted localhost above)
     console.log = console.error = console.warn = (...a) => logs.push(a.join(' '));
 });
 test.afterEach(() => { if (process.env.SHOW_LOGS) origLog('LOGS:', logs.join(' | ')); console.log = origLog; console.error = origErr; console.warn = origWarn; });
 
-test('migrations are idempotent (001 then 002, 002 twice)', async () => {
-    await pool.query(fs.readFileSync(new URL('../migrations/001_tally_submission.sql', import.meta.url), 'utf8'));
-    await pool.query(fs.readFileSync(new URL('../migrations/002_six_forms.sql', import.meta.url), 'utf8'));
+test('migrations 001 + 002 (+ 002 again) over existing CRM rows: rows unchanged, new columns empty, unique index present', async () => {
+    assert.equal(legacyBefore.length, 2);
+    assert.deepEqual(legacyAfter, legacyBefore);
+    assert.ok(legacyCols.every(r => r.tally_submission_id === null && r.tally_form_id === null && r.track === null && r.project_type === null));
+    await pool.query(MIGRATION_001);
+    await pool.query(MIGRATION_002);
+    const cols = (await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'clients'")).rows.map(r => r.column_name);
+    for (const c of ['tally_submission_id', 'source', 'price_range', 'lang', 'tally_form_id', 'track', 'project_type', 'preferred_contact']) assert.ok(cols.includes(c), c);
+    const idx = (await pool.query("SELECT indexdef FROM pg_indexes WHERE tablename = 'clients' AND indexname = 'ux_clients_tally_submission_id'")).rows;
+    assert.equal(idx.length, 1);
+    assert.match(idx[0].indexdef, /CREATE UNIQUE INDEX .* \(tally_submission_id\)/);
+    // the database itself refuses a second row with the same submission id (not only the application)
+    await pool.query("INSERT INTO clients (name, tally_submission_id) VALUES ('a', 'uniq-1')");
+    await assert.rejects(pool.query("INSERT INTO clients (name, tally_submission_id) VALUES ('b', 'uniq-1')"), { code: '23505' });
+});
+
+test('all six forms (Portfolio + Learning, BG/EN/HE) are stored in clients and leads with the right fields', async () => {
+    for (const id of Object.keys(ARIE_FORMS)) {
+        const r = await post(payloadFor(id, 'pg-' + id));
+        assert.equal(r.status, 200, id);
+    }
+    const rows = (await pool.query('SELECT * FROM clients ORDER BY id')).rows;
+    assert.equal(rows.length, 6);
+    assert.equal(await count('leads'), 6);
+    for (const row of rows) {
+        const f = ARIE_FORMS[row.tally_form_id], s = SAMPLE[f.lang];
+        assert.equal(row.tally_submission_id, 'pg-' + row.tally_form_id);
+        assert.equal(row.track, f.track);
+        assert.equal(row.lang, f.lang);
+        assert.equal(row.name, s.name);
+        assert.match(row.email, /@example\.invalid$/);
+        assert.equal(row.notes, s.notes);
+        assert.equal(row.source, 'Tally'); assert.equal(row.status, 'New');
+        if (f.track === 'portfolio') {
+            assert.equal(row.project_type, PORTFOLIO_TEXT[row.tally_form_id].project[1][4]); // AI chatbot in the form's language
+            assert.equal(row.company, s.company);
+            assert.equal(row.price_range, '€600 – €850');
+            assert.equal(row.service_type, 'Smart landing page, WhatsApp ordering');
+            assert.equal(row.preferred_contact, PORTFOLIO_TEXT[row.tally_form_id].contact[1][2]);
+        } else {
+            assert.equal(row.project_type, s.topic);
+            assert.equal(row.price_range, '');
+        }
+    }
+    assert.equal(rows.find(r => r.tally_form_id === '9NBlNE').name, 'דנה כהן'); // Hebrew stored as Hebrew
+    // leads.data stays TEXT with JSON that /api/leads can JSON.parse
+    const lead = JSON.parse((await pool.query("SELECT data FROM leads WHERE data LIKE '%zEjeEk%'")).rows[0].data);
+    assert.equal(lead.track, 'learning'); assert.equal(lead.form_id, 'zEjeEk'); assert.ok(lead.details.answers.length >= 6);
+    await tick();
+    assert.equal(notified.length, 6);
+});
+
+test('per-form signing secret on Postgres: own secret accepted, shared secret refused for that form', async () => {
+    process.env.ARIE_TALLY_SIGNING_SECRETS = JSON.stringify({ LD90Dy: 'own-ld90dy-secret' });
+    try {
+        const raw = JSON.stringify(payloadFor('LD90Dy', 'own-1'));
+        assert.equal((await post(null, { raw, sig: sign(raw) })).status, 401);
+        const own = crypto.createHmac('sha256', 'own-ld90dy-secret').update(raw).digest('base64');
+        assert.equal((await post(null, { raw, sig: own })).status, 200);
+        assert.equal((await post(payloadFor('q54MpG', 'own-2'))).status, 200); // other forms keep the shared secret
+        assert.equal(await count('clients'), 2);
+    } finally { delete process.env.ARIE_TALLY_SIGNING_SECRETS; }
+});
+
+test('10 concurrent deliveries of a real form submission: one row, nine duplicates', async () => {
+    const p = portfolioPayload('9NBlNE', 'burst-he');
+    const rs = await Promise.all(Array.from({ length: 10 }, () => post(p)));
+    const st = (await Promise.all(rs.map(r => r.json()))).map(j => j.status);
+    assert.equal(st.filter(x => x === 'success').length, 1);
+    assert.equal(st.filter(x => x === 'duplicate').length, 9);
+    assert.equal(await count('clients'), 1);
+    assert.equal(await count('leads'), 1);
 });
 
 test('valid lead: stored with all fields, leads row, one owner notification', async () => {

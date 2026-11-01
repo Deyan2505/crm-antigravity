@@ -1,0 +1,81 @@
+# QA only: runs the CRM server tests against a throwaway PostgreSQL 16 container.
+# Triggered only by pushes to feature/six-form-tally. Deploys nothing, uses no repository secrets,
+# never sees the production DATABASE_URL. The database lives only as long as this job.
+name: CRM QA (six Tally forms)
+
+on:
+  push:
+    branches: [feature/six-form-tally]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-qa-six-forms
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # credentials of this temporary container only; not used anywhere else
+          POSTGRES_USER: crm_test
+          POSTGRES_PASSWORD: crm_test_only
+          POSTGRES_DB: crm_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U crm_test -d crm_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: crm_test
+      PGPASSWORD: crm_test_only
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - run: npm ci
+
+      - name: Unit tests (parser, signatures, six forms over HTTP)
+        run: npm test
+
+      - name: Migrations with psql on a separate database that already has CRM rows (001, 002, 002 again)
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -d crm_test -c "CREATE DATABASE crm_migrate"
+          export PGDATABASE=crm_migrate
+          psql -v ON_ERROR_STOP=1 -f test/legacy_schema.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO clients (name, email, status) VALUES ('Legacy A', 'a@legacy.invalid', 'Won'), ('Legacy B', 'b@legacy.invalid', 'New')"
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO leads (source, data) VALUES ('Tally', '{}')"
+          before=$(psql -At -c "SELECT md5(string_agg(id||name||email||status, ',' ORDER BY id)) FROM clients")
+          psql -v ON_ERROR_STOP=1 -f migrations/001_tally_submission.sql
+          psql -v ON_ERROR_STOP=1 -f migrations/002_six_forms.sql
+          psql -v ON_ERROR_STOP=1 -f migrations/002_six_forms.sql
+          after=$(psql -At -c "SELECT md5(string_agg(id||name||email||status, ',' ORDER BY id)) FROM clients")
+          test "$before" = "$after"
+          test "$(psql -At -c "SELECT COUNT(*) FROM information_schema.columns WHERE table_name='clients' AND column_name IN ('tally_submission_id','source','price_range','lang','tally_form_id','track','project_type','preferred_contact')")" = 8
+          test "$(psql -At -c "SELECT COUNT(*) FROM pg_indexes WHERE tablename='clients' AND indexname='ux_clients_tally_submission_id' AND indexdef LIKE 'CREATE UNIQUE INDEX%'")" = 1
+          test "$(psql -At -c "SELECT COUNT(*) FROM clients WHERE tally_submission_id IS NULL AND track IS NULL")" = 2
+          psql -v ON_ERROR_STOP=1 -f migrations/check_schema_readonly.sql > /dev/null
+          echo "migrations OK: legacy rows unchanged, 8 columns, unique index, 002 re-runnable, read-only check runs"
+
+      - name: PostgreSQL integration tests (handler + full app on the temporary database)
+        env:
+          TEST_DATABASE_URL: postgres://crm_test:crm_test_only@127.0.0.1:5432/crm_test
+        run: npm run test:integration
