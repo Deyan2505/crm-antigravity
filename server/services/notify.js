@@ -17,11 +17,13 @@ export async function notifyOwner(lead) {
     await transporter.sendMail({
         from: `"Universal CRM" <${process.env.EMAIL_USER}>`,
         to,
-        subject: 'New ARIE inquiry',
+        subject: lead.track === 'learning' ? 'New ARIE Learning inquiry' : 'New ARIE inquiry',
         text: [
+            line('Direction', lead.track), line('Project', lead.projectType),
             line('Name', lead.name), line('Email', lead.email), line('Phone', lead.phone), line('Company', lead.company),
             line('Services', lead.services), line('Budget', lead.price_range), line('Language', lead.lang),
-            line('Notes', lead.notes), line('Tally submission', lead.submissionId)
+            line('Contact by', lead.contactPref), line('Notes', lead.notes),
+            line('Tally form', lead.formId), line('Tally submission', lead.submissionId)
         ].join('\n')
     });
     return true;

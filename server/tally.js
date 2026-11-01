@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { ARIE_FORMS } from './arieForms.js';
 
 // Tally signs the exact raw JSON body: base64(HMAC-SHA256(rawBody, signingSecret)) in the `tally-signature` header.
 export function verifyTallySignature(rawBody, header, secret) {
@@ -59,4 +60,80 @@ export function parseTallyPayload(body, fieldKeys = {}) {
         lang: pick('lang', x => hidden('lang')(x) || byLabel('lang')(x)),
         notes: pick('notes', x => x.type === 'TEXTAREA' || byLabel('notes')(x))
     };
+}
+
+// ---- the six ARIE forms (see arieForms.js) ------------------------------------------------------------
+// Signing secret for a form: its own secret from ARIE_TALLY_SIGNING_SECRETS ({"<formId>":"<secret>",...}) if set,
+// otherwise the shared ARIE_TALLY_SIGNING_SECRET. A form with its own secret never accepts the shared one.
+// Returns null when nothing is configured (the caller answers 503); a malformed JSON map counts as not configured.
+export function signingSecretFor(formId, env = process.env) {
+    let perForm = {};
+    if (env.ARIE_TALLY_SIGNING_SECRETS) {
+        try { perForm = JSON.parse(env.ARIE_TALLY_SIGNING_SECRETS) || {}; } catch { perForm = {}; console.error('ARIE webhook: ARIE_TALLY_SIGNING_SECRETS is not valid JSON'); }
+    }
+    const own = typeof formId === 'string' && Object.hasOwn(perForm, formId) ? perForm[formId] : null;
+    return own || env.ARIE_TALLY_SIGNING_SECRET || null;
+}
+
+// Answer of one question by its stable id: Tally sends key "question_<id>"; per-option checkbox booleans
+// ("question_<id>_<option>") and empty answers are skipped by textOf().
+function answerById(fields, id) {
+    if (!id) return { found: false, text: '' };
+    const f = fields.find(x => x && (x.key === `question_${id}` || x.key === id));
+    return { found: !!f, text: f ? textOf(f) : '' };
+}
+
+// Parses a submission of one of the six ARIE forms; for any other form returns parseTallyPayload's result
+// with track 'unknown'. `missing` lists roles whose question id was not in the payload (the form changed):
+// those roles fall back to the field type (email, phone, long text) and the handler logs the role names only.
+export function parseArieSubmission(body, fieldKeys = {}) {
+    const data = body && body.data;
+    const form = data && ARIE_FORMS[data.formId];
+    if (!form) {
+        const lead = parseTallyPayload(body, fieldKeys);
+        return lead && { ...lead, formId: (data && data.formId) || '', track: 'unknown', projectType: '', contactPref: '', answers: answersOf(data), missing: [] };
+    }
+    const submissionId = data.submissionId || data.responseId;
+    if (!submissionId || !Array.isArray(data.fields)) return null;
+
+    const fields = data.fields.filter(Boolean);
+    const missing = [];
+    const get = (role, fallback) => {
+        const a = answerById(fields, form.q[role]);
+        if (!a.found && form.q[role]) missing.push(role);
+        if (a.text || a.found || !fallback) return a.text;
+        const f = fields.find(fallback);
+        return f ? textOf(f) : '';
+    };
+    const hidden = name => { const f = fields.find(x => x.type === 'HIDDEN_FIELDS' && x.label === name); return f ? textOf(f) : ''; };
+
+    const features = get('features');
+    const lead = {
+        submissionId: String(submissionId),
+        formId: data.formId,
+        track: form.track,
+        lang: form.lang, // language of the form the client filled in
+        name: get('name') || 'Unknown',
+        email: get('email', x => x.type === 'INPUT_EMAIL'),
+        phone: get('phone', x => x.type === 'INPUT_PHONE_NUMBER'),
+        company: get('company'),
+        notes: get('notes', x => x.type === 'TEXTAREA'),
+        projectType: form.track === 'portfolio' ? get('projectType') : get('topic'),
+        contactPref: get('contactPref'),
+        // Portfolio: services chosen in the site's price calculator (hidden field), else the features ticked in the form
+        services: (form.track === 'portfolio' && hidden('services')) || features,
+        price_range: form.track === 'portfolio' ? hidden('price_range') : '',
+        answers: answersOf(data),
+        missing
+    };
+    if (form.track === 'learning') Object.assign(lead, { role: get('role'), materials: get('materials'), features });
+    else Object.assign(lead, { features, siteLang: get('siteLang') });
+    lead.timing = get('timing');
+    return lead;
+}
+
+// Every answered question with its label, in form order (kept in leads.data so nothing the client wrote is lost).
+function answersOf(data) {
+    if (!data || !Array.isArray(data.fields)) return [];
+    return data.fields.filter(f => f && textOf(f)).map(f => ({ label: String(f.label || f.key || ''), value: textOf(f) }));
 }

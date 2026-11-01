@@ -28,13 +28,13 @@ const body = (submissionId, extra = []) => ({
     data: {
         formId: 'q54MpG', submissionId,
         fields: [
-            { key: 'k1', label: 'Име', type: 'INPUT_TEXT', value: 'Тест Клиент' },
-            { key: 'k2', label: 'Имейл', type: 'INPUT_EMAIL', value: 'pii-test@example.invalid' },
-            { key: 'k3', label: 'Телефон', type: 'INPUT_PHONE_NUMBER', value: '+359000000000' },
-            { key: 'k4', label: 'Какви допълнителни възможности', type: 'CHECKBOXES', value: ['a'], options: [{ id: 'a', text: 'Онлайн резервации' }] },
+            { key: 'question_61yQMY', label: 'Как да се обръщаме към вас?', type: 'INPUT_TEXT', value: 'Тест Клиент' },
+            { key: 'question_7Jz9M0', label: 'На какъв имейл можем да се свържем с вас?', type: 'INPUT_EMAIL', value: 'pii-test@example.invalid' },
+            { key: 'question_b2y4v1', label: 'На какъв телефон можем да се свържем с вас?', type: 'INPUT_PHONE_NUMBER', value: '+359000000000' },
+            { key: 'question_96yJM5', label: 'Какви допълнителни възможности бихте искали за вашия сайт?', type: 'CHECKBOXES', value: ['a'], options: [{ id: 'a', text: 'Онлайн резервации' }] },
             { key: 'k5', label: 'lang', type: 'HIDDEN_FIELDS', value: 'bg' },
             { key: 'k6', label: 'price_range', type: 'HIDDEN_FIELDS', value: '500-1000' },
-            { key: 'k7', label: 'Разкажи', type: 'TEXTAREA', value: 'Бележка' },
+            { key: 'question_ajgrvX', label: 'Има ли нещо друго, което бихте искали да ни разкажете за проекта си?', type: 'TEXTAREA', value: 'Бележка' },
             ...extra
         ]
     }
@@ -58,7 +58,7 @@ const tick = () => new Promise(r => setTimeout(r, 50));
 
 before(async () => {
     await pool.query(SCHEMA);
-    await pool.query(fs.readFileSync(new URL('../migrations/001_tally_submission.sql', import.meta.url), 'utf8'));
+    await pool.query(fs.readFileSync(new URL('../migrations/002_six_forms.sql', import.meta.url), 'utf8'));
     process.env.ARIE_TALLY_SIGNING_SECRET = SECRET;
     await startHandlerServer();
 });
@@ -70,8 +70,9 @@ beforeEach(async () => {
 });
 test.afterEach(() => { if (process.env.SHOW_LOGS) origLog('LOGS:', logs.join(' | ')); console.log = origLog; console.error = origErr; console.warn = origWarn; });
 
-test('migration is idempotent', async () => {
+test('migrations are idempotent (001 then 002, 002 twice)', async () => {
     await pool.query(fs.readFileSync(new URL('../migrations/001_tally_submission.sql', import.meta.url), 'utf8'));
+    await pool.query(fs.readFileSync(new URL('../migrations/002_six_forms.sql', import.meta.url), 'utf8'));
 });
 
 test('valid lead: stored with all fields, leads row, one owner notification', async () => {
@@ -87,6 +88,9 @@ test('valid lead: stored with all fields, leads row, one owner notification', as
     assert.equal(c[0].service_type, 'Онлайн резервации');
     assert.equal(c[0].notes, 'Бележка');
     assert.equal(c[0].email, 'pii-test@example.invalid');
+    assert.equal(c[0].name, 'Тест Клиент'); // by question id, not by label
+    assert.equal(c[0].tally_form_id, 'q54MpG');
+    assert.equal(c[0].track, 'portfolio');
     assert.equal(await count('leads'), 1);
     await tick();
     assert.equal(notified.length, 1);
