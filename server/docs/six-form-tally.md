@@ -53,16 +53,23 @@ No secret at all for a form → `503`. Wrong or missing signature → `401`. Not
 ## Recovering submissions that never reached the CRM
 
 Tally keeps every submission (q54MpG and rD5KzL had submissions when this was written).
-After step 4, replay them through the same parser so they get the same ids and dedupe:
 
-* Dry run first: export the submissions (Tally API `GET /forms/{id}/submissions` or the CSV export), build the
-  webhook-shaped body (`data.formId`, `data.submissionId`, `data.fields` with `key: "question_<id>"`) and print what
-  `parseArieSubmission` returns — no database writes, no e-mails.
-* Before importing, check by e-mail and date which of them already exist from the legacy `/api/webhook` (those rows have
-  no `tally_submission_id`) and skip them by hand.
-* Import with the original submission id in `tally_submission_id` and `ON CONFLICT (tally_submission_id) DO NOTHING`,
-  so re-running is harmless; no owner notification during the import. Alternative without new code: Tally's
-  "Resend" on each submission in the webhook log, which goes through the signed route and the same dedupe.
+**Do not rely on Tally's "Resend".** It only re-sends a delivery that a webhook already attempted. Submissions made
+before the webhook existed (or while a form had no webhook) have no delivery to resend, so they need an import.
+Resend is fine only for deliveries that exist in a webhook's log and failed (e.g. a 404/500 before the fix).
+
+Import, after step 4 of the rollout:
+
+1. Inventory: for each of the six forms list submission ids and dates only (Tally API `GET /forms/{id}/submissions`,
+   or the dashboard). Store nothing personal in tickets or chat.
+2. Find what the CRM already has: rows from the old `/api/webhook` have no `tally_submission_id`; match those by
+   e-mail and date (`SELECT id, created_at FROM clients WHERE email = $1`) and mark them as already present.
+3. Dry run: turn each remaining API submission into the webhook shape (`data.formId`, `data.submissionId`,
+   `data.fields` with `key: "question_<questionId>"`, choice values as option ids plus `options`) and print what
+   `parseArieSubmission` returns: no database writes, no e-mails. Check names, project types and tracks by eye.
+4. Import with the original submission id in `tally_submission_id` and `ON CONFLICT (tally_submission_id) DO NOTHING`,
+   in one transaction per submission (clients + leads), without owner notifications. Re-running is harmless.
+5. Afterwards: count per `tally_form_id` must equal the Tally count minus the rows found in step 2.
 
 ## Tests
 
