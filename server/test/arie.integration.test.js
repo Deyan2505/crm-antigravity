@@ -358,3 +358,75 @@ test('app wiring: new route works, legacy /api/webhook untouched, registration c
         assert.equal(r.body.length, 2);
     } finally { closed.child.kill(); open.child.kill(); }
 });
+
+test('Stage 1 API contract on real PostgreSQL: 400/401/404/409, Tally clients and their answers survive, CORS for the production frontend', async () => {
+    await pool.query('TRUNCATE clients, leads, users RESTART IDENTITY');
+    const app = startApp(3993, { ALLOW_REGISTRATION: 'true' }); // registration is only used here to obtain a test token
+    const url = p => `http://127.0.0.1:3993${p}`;
+    const j = (u, init) => fetch(u, init).then(async r => ({ status: r.status, body: await r.json().catch(() => null), headers: r.headers }));
+    const json = { 'content-type': 'application/json' };
+    try {
+        await waitUp(3993);
+        // a real Tally client + lead through the signed route
+        const raw = JSON.stringify(body('stage1-tally'));
+        let r = await j(url(ARIE_PATH), { method: 'POST', headers: { ...json, 'tally-signature': sign(raw) }, body: raw });
+        assert.equal(r.body.status, 'success');
+        const leadBefore = (await pool.query('SELECT data FROM leads')).rows[0].data;
+
+        await j(url('/api/auth/register'), { method: 'POST', headers: json, body: JSON.stringify({ name: 'Owner', email: 'owner@example.invalid', password: 'password123' }) });
+        r = await j(url('/api/auth/login'), { method: 'POST', headers: json, body: JSON.stringify({ email: 'owner@example.invalid', password: 'password123' }) });
+        const auth = { ...json, authorization: `Bearer ${r.body.token}` };
+
+        // 401: never 403, for no token and for a bad token
+        for (const h of [json, { ...json, authorization: 'Bearer abc.def.ghi' }]) {
+            r = await j(url('/api/clients'), { headers: h });
+            assert.equal(r.status, 401);
+        }
+
+        // 400 / 404 / 200 on update
+        r = await j(url('/api/clients'), { method: 'POST', headers: auth, body: JSON.stringify({ name: 'Manual', email: 'm@example.invalid', status: 'Meeting' }) });
+        assert.equal(r.status, 201);
+        const manualId = r.body.id;
+        r = await j(url('/api/clients'), { method: 'POST', headers: auth, body: JSON.stringify({ email: 'no-name@example.invalid' }) });
+        assert.equal(r.status, 400);
+        r = await j(url(`/api/clients/${manualId}`), { method: 'PUT', headers: auth, body: JSON.stringify({ status: 'Won', deal_value: 'abc' }) });
+        assert.equal(r.status, 400);
+        r = await j(url('/api/clients/99999'), { method: 'PUT', headers: auth, body: JSON.stringify({ status: 'Won' }) });
+        assert.equal(r.status, 404);
+        r = await j(url(`/api/clients/${manualId}`), { method: 'PUT', headers: auth, body: JSON.stringify({ status: 'Won', deal_value: '1250,50', meeting_date: '' }) });
+        assert.equal(r.status, 200);
+        let row = (await pool.query('SELECT status, deal_value, meeting_date, email FROM clients WHERE id = $1', [manualId])).rows[0];
+        assert.deepEqual([row.status, row.deal_value, row.meeting_date, row.email], ['Won', 1250.5, null, 'm@example.invalid']);
+        r = await j(url(`/api/clients/${manualId}`), { method: 'PUT', headers: auth, body: JSON.stringify({ email: '' }) }); // '' clears
+        row = (await pool.query('SELECT email FROM clients WHERE id = $1', [manualId])).rows[0];
+        assert.equal(row.email, null);
+
+        // delete: Tally client refused (409) and untouched, manual client deleted, unknown 404
+        const tally = (await pool.query("SELECT id FROM clients WHERE tally_submission_id = 'stage1-tally'")).rows[0].id;
+        r = await j(url(`/api/clients/${tally}`), { method: 'DELETE', headers: auth });
+        assert.deepEqual([r.status, r.body.code], [409, 'ARCHIVE_REQUIRED']);
+        assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM clients WHERE id = $1', [tally])).rows[0].n, 1);
+        assert.equal((await pool.query('SELECT data FROM leads')).rows[0].data, leadBefore, 'original Tally answers unchanged');
+        r = await j(url(`/api/clients/${manualId}`), { method: 'DELETE', headers: auth });
+        assert.equal(r.status, 200);
+        r = await j(url(`/api/clients/${manualId}`), { method: 'DELETE', headers: auth });
+        assert.equal(r.status, 404);
+        // a re-sent submission is still a duplicate
+        r = await j(url(ARIE_PATH), { method: 'POST', headers: { ...json, 'tally-signature': sign(raw) }, body: raw });
+        assert.equal(r.body.status, 'duplicate');
+
+        // an unreadable leads.data row does not break the list
+        await pool.query("INSERT INTO leads (source, data) VALUES ('Tally', '{broken')");
+        r = await j(url('/api/leads'), { headers: auth });
+        assert.equal(r.status, 200);
+        assert.equal(r.body.length, 2);
+
+        // CORS: the production frontend may call the API, a foreign origin gets no CORS headers and no 500
+        const pre = o => j(url('/api/clients'), { method: 'OPTIONS', headers: { origin: o, 'access-control-request-method': 'GET', 'access-control-request-headers': 'authorization' } });
+        r = await pre('https://crm-antigravity-nine.vercel.app');
+        assert.equal(r.headers.get('access-control-allow-origin'), 'https://crm-antigravity-nine.vercel.app');
+        r = await pre('https://evil.example');
+        assert.equal(r.headers.get('access-control-allow-origin'), null);
+        assert.ok(r.status < 500);
+    } finally { app.child.kill(); }
+});

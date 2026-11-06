@@ -1,11 +1,10 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LanguageProvider } from './context/LanguageContext';
 import { AuthProvider } from './context/AuthContext';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Clients from './pages/Clients';
 import Login from './components/Login';
-import Signup from './components/Signup';
 import ProtectedRoute from './components/ProtectedRoute';
 import Leads from './pages/Leads';
 import Settings from './pages/Settings';
@@ -19,7 +18,8 @@ function App() {
                     <Routes>
                         <Route path="/" element={<Landing />} />
                         <Route path="/login" element={<Login />} />
-                        <Route path="/signup" element={<Signup />} />
+                        {/* public registration is closed: the old sign-up address (and the landing page buttons that point to it) lead to the sign-in page */}
+                        <Route path="/signup" element={<Navigate to="/login" replace />} />
 
                         <Route path="/app" element={
                             <ProtectedRoute>

@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { API_URL } from '../utils/api';
+import { API_URL, setUnauthorizedHandler } from '../utils/api';
 
 const AuthContext = createContext();
 
@@ -13,9 +13,18 @@ export const AuthProvider = ({ children }) => {
         const storedUser = localStorage.getItem('user');
         const token = localStorage.getItem('token');
         if (storedUser && token) {
-            setUser(JSON.parse(storedUser));
+            try { setUser(JSON.parse(storedUser)); } catch { localStorage.removeItem('user'); localStorage.removeItem('token'); }
         }
         setLoading(false);
+    }, []);
+
+    // Any 401 from the API (expired or invalid token) signs the user out; ProtectedRoute then shows /login.
+    useEffect(() => {
+        setUnauthorizedHandler(() => {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setUser(null);
+        });
     }, []);
 
     const login = async (email, password) => {

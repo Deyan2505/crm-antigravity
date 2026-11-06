@@ -6,10 +6,10 @@ import { useLanguage } from '../context/LanguageContext';
 import { LogOut, User } from 'lucide-react';
 
 const routeTitleKey = {
-    '/': 'dashboard',
-    '/clients': 'clients',
-    '/leads': 'leads',
-    '/settings': 'settings',
+    app: 'dashboard',
+    clients: 'clients',
+    leads: 'leads',
+    settings: 'settings',
 };
 
 const Layout = () => {
@@ -18,7 +18,7 @@ const Layout = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const titleKey = routeTitleKey[location.pathname] || 'dashboard';
+    const titleKey = routeTitleKey[location.pathname.split('/').filter(Boolean).pop()] || 'dashboard';
 
     const handleLogout = () => {
         logout();

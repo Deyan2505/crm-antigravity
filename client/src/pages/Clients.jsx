@@ -2,7 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Filter, Edit2, Trash2, Mail } from 'lucide-react';
 import Modal from '../components/Modal';
 import { useLanguage } from '../context/LanguageContext';
-import { API_URL, authHeaders } from '../utils/api';
+import ErrorBanner from '../components/ErrorBanner';
+import { apiFetch } from '../utils/api';
+import { ApiError } from '../utils/apiCore';
+
+const EMPTY_FORM = {
+    name: '', email: '', company: '', phone: '', service_type: '', social_platform: '',
+    preferred_contact: 'Unspecified', notes: '', status: 'New'
+};
 
 const Clients = () => {
     const { t } = useLanguage();
@@ -12,39 +19,33 @@ const Clients = () => {
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [formData, setFormData] = useState({
-        name: '',
-        email: '',
-        company: '',
-        phone: '',
-        service_type: '',
-        social_platform: '',
-        preferred_contact: 'Unspecified',
-        notes: '',
-        status: 'New'
-    });
+    const [formData, setFormData] = useState(EMPTY_FORM);
+    const [formError, setFormError] = useState(null);   // shown inside the add/edit modal
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);            // list load / delete errors
+    const [total, setTotal] = useState(0);
 
     // Pipeline/Status Modal State
     const [editingClient, setEditingClient] = useState(null);
     const [statusModalOpen, setStatusModalOpen] = useState(false);
     const [statusData, setStatusData] = useState({ status: '', additionalInfo: '' });
+    const [statusError, setStatusError] = useState(null);
 
     useEffect(() => {
+        // Demo Mode (clients kept only in this browser) no longer exists: remove what an older version left behind.
+        try { localStorage.removeItem('crm_clients_demo'); } catch { /* storage unavailable */ }
         fetchClients();
     }, []);
 
     const fetchClients = async () => {
         try {
-            const res = await fetch(`${API_URL}/api/clients`, {
-                headers: authHeaders()
-            });
-            if (!res.ok) throw new Error('API not available');
-            const json = await res.json();
-            setClients(json.data || json);
-        } catch (error) {
-            console.warn('Backend not connected, using LocalStorage (Demo Mode)');
-            const saved = localStorage.getItem('crm_clients_demo');
-            if (saved) setClients(JSON.parse(saved));
+            const json = await apiFetch('/api/clients?limit=200');
+            if (!Array.isArray(json.data)) throw new ApiError(200, 'BAD_RESPONSE');
+            setClients(json.data);
+            setTotal(Number(json.total) || json.data.length);
+            setError(null);
+        } catch (err) {
+            setError(err); // the list on screen (if any) is the last confirmed one
         } finally {
             setLoading(false);
         }
@@ -59,81 +60,73 @@ const Clients = () => {
     // Editing never rewrites the stored preference unless the select was used (an empty or old free-text value stays as it is).
     const [contactTouched, setContactTouched] = useState(false);
 
+    const closeModal = () => {
+        setIsModalOpen(false);
+        setFormData(EMPTY_FORM);
+        setFormError(null);
+    };
+
+    const openCreate = () => {
+        setFormData(EMPTY_FORM);
+        setContactTouched(false);
+        setFormError(null);
+        setIsModalOpen(true);
+    };
+
+    // The form closes and the list changes only after the server confirmed the save; on any error the modal stays open with the data.
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (saving) return;
+        if (!formData.name || !formData.name.trim()) { setFormError(new ApiError(400, 'VALIDATION', t('name_required'))); return; }
         const isEditing = !!formData.id;
         const payload = { ...formData };
         if (isEditing && !contactTouched) delete payload.preferred_contact;
 
+        setSaving(true);
+        setFormError(null);
         try {
-            const res = await fetch(
-                isEditing ? `${API_URL}/api/clients/${formData.id}` : `${API_URL}/api/clients`,
-                {
-                    method: isEditing ? 'PUT' : 'POST',
-                    headers: authHeaders(),
-                    body: JSON.stringify(payload)
-                }
-            );
-
-            if (res.ok) {
-                fetchClients();
-            } else {
-                throw new Error('API failed');
-            }
-        } catch (error) {
-            // Fallback to LocalStorage (Demo Mode)
-            console.warn('Saving to LocalStorage (Demo Mode)');
-            if (isEditing) {
-                const updatedClients = clients.map(c => c.id === formData.id ? { ...c, ...formData } : c);
-                setClients(updatedClients);
-                localStorage.setItem('crm_clients_demo', JSON.stringify(updatedClients));
-            } else {
-                const newClient = { ...formData, id: Date.now(), created_at: new Date().toISOString() };
-                const updatedClients = [newClient, ...clients];
-                setClients(updatedClients);
-                localStorage.setItem('crm_clients_demo', JSON.stringify(updatedClients));
-            }
+            await apiFetch(isEditing ? `/api/clients/${formData.id}` : '/api/clients', { method: isEditing ? 'PUT' : 'POST', body: payload });
+            closeModal();
+            await fetchClients();
+        } catch (err) {
+            setFormError(err);
+        } finally {
+            setSaving(false);
         }
-
-        // Reset Form
-        setIsModalOpen(false);
-        setFormData({
-            name: '', email: '', company: '', phone: '',
-            service_type: '', social_platform: '', preferred_contact: 'Unspecified', notes: '', status: 'New'
-        });
     };
 
     const handleStatusClick = (client) => {
         setEditingClient(client);
         setStatusData({ status: client.status || 'New', additionalInfo: '' });
+        setStatusError(null);
         setStatusModalOpen(true);
     };
 
     const handleStatusUpdate = async () => {
-        if (!editingClient) return;
-
-        const updatedFields = { status: statusData.status };
-        if (statusData.status === 'Won') updatedFields.deal_value = statusData.additionalInfo;
-        if (statusData.status === 'Lost') updatedFields.lost_reason = statusData.additionalInfo;
-        if (statusData.status === 'Meeting') updatedFields.meeting_date = statusData.additionalInfo;
-
-        // Optimistic UI Update (for Demo Mode & Fast UI)
-        const updatedList = clients.map(c => c.id === editingClient.id ? { ...c, ...updatedFields } : c);
-        setClients(updatedList);
-        localStorage.setItem('crm_clients_demo', JSON.stringify(updatedList));
-
-        // Try Backend Update
-        try {
-            await fetch(`${API_URL}/api/clients/${editingClient.id}`, {
-                method: 'PUT',
-                headers: authHeaders(),
-                body: JSON.stringify(updatedFields)
-            });
-            // If successful, maybe refetch or just leave it
-        } catch (e) {
-            console.warn('Backend update failed, kept local change');
+        if (!editingClient || saving) return;
+        const extra = String(statusData.additionalInfo || '').trim();
+        const fields = { status: statusData.status };
+        if (statusData.status === 'Won' && extra) {
+            if (!Number.isFinite(Number(extra.replace(',', '.')))) { setStatusError(new ApiError(400, 'VALIDATION', t('amount_invalid'))); return; }
+            fields.deal_value = extra;
         }
-        setStatusModalOpen(false);
+        if (statusData.status === 'Lost' && extra) fields.lost_reason = extra;
+        if (statusData.status === 'Meeting' && extra) {
+            if (Number.isNaN(Date.parse(extra))) { setStatusError(new ApiError(400, 'VALIDATION', t('date_invalid'))); return; }
+            fields.meeting_date = extra;
+        }
+
+        setSaving(true);
+        setStatusError(null);
+        try {
+            await apiFetch(`/api/clients/${editingClient.id}`, { method: 'PUT', body: fields });
+            setStatusModalOpen(false);
+            await fetchClients();
+        } catch (err) {
+            setStatusError(err); // the status in the list is unchanged until the server confirms
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleEdit = (client) => {
@@ -145,21 +138,18 @@ const Clients = () => {
         setIsModalOpen(true);
     };
 
-    const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to delete this client?')) return;
-
-        // Optimistic UI
-        const updatedList = clients.filter(c => c.id !== id);
-        setClients(updatedList);
-        localStorage.setItem('crm_clients_demo', JSON.stringify(updatedList));
-
+    // Clients that came from a Tally form are kept (the server refuses too): deleting them would lose the key that stops the same
+    // submission from being imported again. Archiving replaces deletion in Stage 2.
+    const handleDelete = async (client) => {
+        if (client.tally_submission_id) return;
+        if (!window.confirm(t('confirm_delete_client'))) return;
+        setError(null);
         try {
-            await fetch(`${API_URL}/api/clients/${id}`, {
-                method: 'DELETE',
-                headers: authHeaders()
-            });
-        } catch (e) {
-            console.warn('Backend delete failed, kept local change');
+            await apiFetch(`/api/clients/${client.id}`, { method: 'DELETE' });
+            await fetchClients();
+        } catch (err) {
+            setError(err);
+            if (err.status === 404) fetchClients(); // already gone: show the real list
         }
     };
 
@@ -180,6 +170,7 @@ const Clients = () => {
 
     return (
         <div className="page-container">
+            <ErrorBanner error={error} onClose={() => setError(null)} />
             <div className="page-header">
                 <div className="search-bar">
                     <Search size={20} className="search-icon" />
@@ -195,7 +186,7 @@ const Clients = () => {
                         <Filter size={18} />
                         {t('filter')}
                     </button>
-                    <button className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
+                    <button className="btn btn-primary" onClick={openCreate}>
                         <Plus size={18} />
                         {t('add_client')}
                     </button>
@@ -272,8 +263,10 @@ const Clients = () => {
                                             </button>
                                             <button
                                                 className="btn-icon text-red-500"
-                                                title={t('delete')}
-                                                onClick={() => handleDelete(client.id)}
+                                                title={client.tally_submission_id ? t('delete_blocked_tally') : t('delete')}
+                                                onClick={() => handleDelete(client)}
+                                                disabled={!!client.tally_submission_id}
+                                                style={client.tally_submission_id ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
                                             >
                                                 <Trash2 size={16} color="#ef4444" />
                                             </button>
@@ -285,13 +278,19 @@ const Clients = () => {
                     </table>
                 )}
             </div>
+            {total > clients.length && (
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.75rem' }}>
+                    {t('clients_shown_of').replace('{shown}', clients.length).replace('{total}', total)}
+                </p>
+            )}
 
             {/* Add / Edit Client Modal */}
             <Modal
                 isOpen={isModalOpen}
-                onClose={() => { setIsModalOpen(false); setFormData({ name: '', email: '', company: '', phone: '', service_type: '', social_platform: '', preferred_contact: 'Unspecified', notes: '', status: 'New' }); }}
+                onClose={closeModal}
                 title={formData.id ? t('edit_client') : t('add_new_client')}
             >
+                <ErrorBanner error={formError} />
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
                         <label>{t('name')}</label>
@@ -385,11 +384,11 @@ const Clients = () => {
                     </div>
 
                     <div className="modal-footer">
-                        <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>
+                        <button type="button" className="btn btn-secondary" onClick={closeModal}>
                             {t('cancel')}
                         </button>
-                        <button type="submit" className="btn btn-primary">
-                            {t('save_client')}
+                        <button type="submit" className="btn btn-primary" disabled={saving}>
+                            {saving ? t('saving') : t('save_client')}
                         </button>
                     </div>
                 </form>
@@ -398,6 +397,7 @@ const Clients = () => {
             {/* Status Update Modal */}
             <Modal isOpen={statusModalOpen} onClose={() => setStatusModalOpen(false)} title={t('select_status')}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <ErrorBanner error={statusError} />
                     <div className="form-group">
                         <label>{t('status')}</label>
                         <select
@@ -456,7 +456,7 @@ const Clients = () => {
 
                     <div className="modal-footer">
                         <button className="btn btn-secondary" onClick={() => setStatusModalOpen(false)}>{t('cancel')}</button>
-                        <button className="btn btn-primary" onClick={handleStatusUpdate}>{t('save_changes')}</button>
+                        <button className="btn btn-primary" onClick={handleStatusUpdate} disabled={saving}>{saving ? t('saving') : t('save_changes')}</button>
                     </div>
                 </div>
             </Modal>

@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, Info } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
-import { API_URL, authHeaders } from '../utils/api';
+import ErrorBanner from '../components/ErrorBanner';
+import { apiFetch } from '../utils/api';
 
 const Leads = () => {
     const { t } = useLanguage();
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
         fetchLeads();
@@ -14,14 +16,12 @@ const Leads = () => {
 
     const fetchLeads = async () => {
         try {
-            const res = await fetch(`${API_URL}/api/leads`, {
-                headers: authHeaders()
-            });
-            if (!res.ok) throw new Error('API failed');
-            const data = await res.json();
+            const data = await apiFetch('/api/leads?limit=200');
+            if (!Array.isArray(data)) throw new Error('bad response');
             setLeads(data);
-        } catch (error) {
-            console.error('Fetch leads error:', error);
+            setError(null);
+        } catch (err) {
+            setError(err);
         } finally {
             setLoading(false);
         }
@@ -29,6 +29,7 @@ const Leads = () => {
 
     return (
         <div className="page-container">
+            <ErrorBanner error={error} onClose={() => setError(null)} />
             <div className="card" style={{ borderLeft: '4px solid var(--accent)', marginBottom: '2rem' }}>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                     <div style={{ padding: '8px', backgroundColor: 'var(--accent-glow)', borderRadius: '8px', color: 'var(--accent)' }}>

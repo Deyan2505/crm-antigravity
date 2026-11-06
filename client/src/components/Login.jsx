@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, LogIn, ArrowRight } from 'lucide-react';
 
@@ -125,14 +125,6 @@ const Login = () => {
                     </button>
                 </form>
 
-                <div className="mt-8 text-center">
-                    <p className="text-sm text-gray-400">
-                        Don't have an account?{' '}
-                        <Link to="/signup" className="glass-link">
-                            Create free account
-                        </Link>
-                    </p>
-                </div>
             </motion.div>
         </div>
     );

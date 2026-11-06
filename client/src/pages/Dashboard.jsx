@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { Users, FileText, Calendar, TrendingUp } from 'lucide-react';
-import { API_URL, authHeaders } from '../utils/api';
+import ErrorBanner from '../components/ErrorBanner';
+import { apiFetch } from '../utils/api';
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -36,6 +37,7 @@ const Dashboard = () => {
     });
     const [monthlyData, setMonthlyData] = useState({ labels: [], counts: [] });
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
         fetchStats();
@@ -44,15 +46,10 @@ const Dashboard = () => {
 
     const fetchStats = async () => {
         try {
-            const res = await fetch(`${API_URL}/api/dashboard/stats`, {
-                headers: authHeaders()
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setStats(data);
-            }
-        } catch (error) {
-            console.error('Error fetching stats:', error);
+            setStats(await apiFetch('/api/dashboard/stats'));
+            setError(null);
+        } catch (err) {
+            setError(err); // the numbers show "-" instead of a misleading 0
         } finally {
             setLoading(false);
         }
@@ -60,15 +57,9 @@ const Dashboard = () => {
 
     const fetchMonthlyStats = async () => {
         try {
-            const res = await fetch(`${API_URL}/api/dashboard/monthly-stats`, {
-                headers: authHeaders()
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setMonthlyData(data);
-            }
-        } catch (error) {
-            console.error('Error fetching monthly stats:', error);
+            setMonthlyData(await apiFetch('/api/dashboard/monthly-stats'));
+        } catch (err) {
+            setError(err);
         }
     };
 
@@ -114,6 +105,7 @@ const Dashboard = () => {
     return (
         <div className="dashboard-container">
             <h2 style={{ marginBottom: '1.5rem' }}>{t('dashboard')}</h2>
+            <ErrorBanner error={error} onClose={() => setError(null)} />
 
             <div className="dashboard-grid">
                 <div className="card stat-card">
@@ -122,7 +114,7 @@ const Dashboard = () => {
                     </div>
                     <div>
                         <h3>{t('stats_clients')}</h3>
-                        <p className="stat-value">{loading ? '-' : stats.totalClients}</p>
+                        <p className="stat-value">{loading || error ? '-' : stats.totalClients}</p>
                     </div>
                 </div>
 
@@ -132,7 +124,7 @@ const Dashboard = () => {
                     </div>
                     <div>
                         <h3>{t('leads')}</h3>
-                        <p className="stat-value">{loading ? '-' : stats.totalLeads}</p>
+                        <p className="stat-value">{loading || error ? '-' : stats.totalLeads}</p>
                     </div>
                 </div>
 
@@ -142,7 +134,7 @@ const Dashboard = () => {
                     </div>
                     <div>
                         <h3>{t('possible_deals')}</h3>
-                        <p className="stat-value">{loading ? '-' : stats.newClients}</p>
+                        <p className="stat-value">{loading || error ? '-' : stats.newClients}</p>
                     </div>
                 </div>
 
@@ -152,7 +144,7 @@ const Dashboard = () => {
                     </div>
                     <div>
                         <h3>{t('meetings_all_time')}</h3>
-                        <p className="stat-value">{loading ? '-' : stats.meetingsCount}</p>
+                        <p className="stat-value">{loading || error ? '-' : stats.meetingsCount}</p>
                     </div>
                 </div>
 

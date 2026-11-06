@@ -1,11 +1,11 @@
 # QA only: runs the CRM server tests against a throwaway PostgreSQL 16 container.
-# Triggered only by pushes to feature/six-form-tally. Deploys nothing, uses no repository secrets,
+# Triggered only by pushes to feature/six-form-tally and feature/crm-v2-stage1. Deploys nothing, uses no repository secrets,
 # never sees the production DATABASE_URL. The database lives only as long as this job.
 name: CRM QA (six Tally forms)
 
 on:
   push:
-    branches: [feature/six-form-tally]
+    branches: [feature/six-form-tally, feature/crm-v2-stage1]
 
 permissions:
   contents: read
@@ -73,7 +73,13 @@ jobs:
           test "$(psql -At -c "SELECT COUNT(*) FROM pg_indexes WHERE tablename='clients' AND indexname='ux_clients_tally_submission_id' AND indexdef LIKE 'CREATE UNIQUE INDEX%'")" = 1
           test "$(psql -At -c "SELECT COUNT(*) FROM clients WHERE tally_submission_id IS NULL AND track IS NULL")" = 2
           psql -v ON_ERROR_STOP=1 -f migrations/check_schema_readonly.sql > /dev/null
+          psql -v ON_ERROR_STOP=1 -f migrations/check_access_readonly.sql > /dev/null
+          test "$(psql -At -c "SELECT COUNT(*) FROM clients")" = 2
           echo "migrations OK: legacy rows unchanged, 8 columns, unique index, 002 re-runnable, read-only check runs"
+
+      - name: Client tests (API error handling, no Demo Mode)
+        working-directory: client
+        run: npm test
 
       - name: PostgreSQL integration tests (handler + full app on the temporary database)
         env:

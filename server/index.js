@@ -11,6 +11,7 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
+import { makeAuth, fail, clientsRouter, leadsRouter } from './crm.js';
 
 dotenv.config();
 
@@ -26,15 +27,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',')
-    : ['http://localhost:5173', 'http://localhost:4173'];
+const PRODUCTION_FRONTEND = 'https://crm-antigravity-nine.vercel.app';
+const allowedOrigins = [
+    'http://localhost:5173', 'http://localhost:4173', PRODUCTION_FRONTEND,
+    ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()).filter(Boolean) : [])
+];
 
 app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-        callback(new Error('Not allowed by CORS'));
-    }
+    origin: (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin))
 }));
 app.use(express.json({ verify: saveRawBody }));
 
@@ -134,7 +134,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
         if (err.code === '23505') {
             return res.status(400).json({ error: 'Email already exists' });
         }
-        res.status(500).json({ error: err.message });
+        fail(res, err, 'POST /api/auth/register');
     }
 });
 
@@ -158,68 +158,35 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
         res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        fail(res, err, 'POST /api/auth/login');
     }
 });
 
-// Auth Middleware
-const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+// Auth middleware and the clients/leads routes live in crm.js
+const authenticateToken = makeAuth(JWT_SECRET);
 
-    if (!token) return res.sendStatus(401);
-
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.sendStatus(403);
-        req.user = user;
-        next();
-    });
-};
-
-app.get('/api/clients', authenticateToken, async (req, res) => {
-    try {
-        const page = Math.max(1, parseInt(req.query.page) || 1);
-        const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
-        const offset = (page - 1) * limit;
-
-        const result = await pool.query(
-            'SELECT * FROM clients ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-            [limit, offset]
-        );
-        const total = await pool.query('SELECT COUNT(*) as count FROM clients');
-        res.json({
-            data: result.rows,
-            total: Number(total.rows[0].count),
-            page,
-            limit
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+app.use('/api/clients', clientsRouter({
+    pool,
+    auth: authenticateToken,
+    // Trigger Make.com Webhook for manual entries (only if configured)
+    onCreated: client => {
+        const MAKE_WEBHOOK_URL = process.env.MAKE_CRM_WEBHOOK_URL;
+        if (!MAKE_WEBHOOK_URL) return;
+        fetch(MAKE_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: 'CRM_Manual', ...client })
+        }).catch(e => console.error('Make.com Webhook failed:', e.message));
     }
-});
-
-app.get('/api/leads', authenticateToken, async (req, res) => {
-    try {
-        const page = Math.max(1, parseInt(req.query.page) || 1);
-        const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
-        const offset = (page - 1) * limit;
-
-        const result = await pool.query(
-            'SELECT * FROM leads ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-            [limit, offset]
-        );
-        res.json(result.rows.map(l => ({ ...l, data: JSON.parse(l.data) })));
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
+}));
+app.use('/api/leads', leadsRouter({ pool, auth: authenticateToken }));
 
 app.get('/api/users', authenticateToken, async (req, res) => {
     try {
         const result = await pool.query('SELECT id, name, email, created_at FROM users ORDER BY created_at DESC');
         res.json(result.rows);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        fail(res, err, '/api/users');
     }
 });
 
@@ -238,7 +205,7 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
             meetingsCount: meetings.rows.length
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        fail(res, err, '/api/dashboard/stats');
     }
 });
 
@@ -259,64 +226,7 @@ app.get('/api/dashboard/monthly-stats', authenticateToken, async (req, res) => {
             counts: result.rows.map(r => parseInt(r.count))
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/clients', authenticateToken, async (req, res) => {
-    const { name, email, phone, company, status, service_type, social_platform, preferred_contact, notes, meeting_date, deal_value } = req.body;
-    try {
-        const result = await pool.query(
-            'INSERT INTO clients (name, email, phone, company, status, service_type, social_platform, preferred_contact, notes, meeting_date, deal_value) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id',
-            [name, email, phone, company, status || 'New', service_type, social_platform, preferred_contact, notes, meeting_date, deal_value]
-        );
-        const newClient = { id: result.rows[0].id, ...req.body };
-
-        // Trigger Make.com Webhook for manual entries (only if configured)
-        const MAKE_WEBHOOK_URL = process.env.MAKE_CRM_WEBHOOK_URL;
-        if (MAKE_WEBHOOK_URL) {
-            fetch(MAKE_WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    source: 'CRM_Manual',
-                    ...newClient
-                })
-            }).catch(e => console.error('Make.com Webhook failed:', e.message));
-        }
-
-        res.status(201).json(newClient);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.put('/api/clients/:id', authenticateToken, async (req, res) => {
-    const { id } = req.params;
-    const { name, email, phone, company, status, service_type, social_platform, preferred_contact, notes, lost_reason, meeting_date, deal_value } = req.body;
-
-    try {
-        await pool.query(
-            `UPDATE clients SET
-             name = COALESCE($1, name),
-             email = COALESCE($2, email),
-             phone = COALESCE($3, phone),
-             company = COALESCE($4, company),
-             status = COALESCE($5, status),
-             service_type = COALESCE($6, service_type),
-             social_platform = COALESCE($7, social_platform),
-             preferred_contact = COALESCE($8, preferred_contact),
-             notes = COALESCE($9, notes),
-             lost_reason = COALESCE($10, lost_reason),
-             meeting_date = COALESCE($11, meeting_date),
-             deal_value = COALESCE($12, deal_value),
-             updated_at = NOW()
-             WHERE id = $13`,
-            [name, email, phone, company, status, service_type, social_platform, preferred_contact, notes, lost_reason, meeting_date, deal_value, id]
-        );
-        res.json({ message: 'Client updated successfully', id });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+        fail(res, err, '/api/dashboard/monthly-stats');
     }
 });
 
@@ -422,17 +332,6 @@ app.post('/api/webhook', async (req, res) => {
 
 // Signed, deduplicated Tally webhook for the ARIE form (separate from the legacy /api/webhook above)
 app.post(ARIE_PATH, makeArieTallyHandler({ pool, notify: notifyOwner }));
-
-// Delete client
-app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
-    const { id } = req.params;
-    try {
-        await pool.query('DELETE FROM clients WHERE id = $1', [id]);
-        res.json({ message: 'Client deleted successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
 
 // Start server
 app.listen(PORT, () => {
