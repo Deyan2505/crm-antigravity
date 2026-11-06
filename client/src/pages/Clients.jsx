@@ -19,7 +19,7 @@ const Clients = () => {
         phone: '',
         service_type: '',
         social_platform: '',
-        preferred_contact: 'Phone',
+        preferred_contact: 'Unspecified',
         notes: '',
         status: 'New'
     });
@@ -55,9 +55,15 @@ const Clients = () => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
+    const CONTACT_KEYS = { Phone: 'contact_method_phone', Email: 'contact_method_email', WhatsApp: 'contact_method_whatsapp', NoPreference: 'contact_method_none', Unspecified: 'contact_method_unspecified' };
+    // Editing never rewrites the stored preference unless the select was used (an empty or old free-text value stays as it is).
+    const [contactTouched, setContactTouched] = useState(false);
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         const isEditing = !!formData.id;
+        const payload = { ...formData };
+        if (isEditing && !contactTouched) delete payload.preferred_contact;
 
         try {
             const res = await fetch(
@@ -65,7 +71,7 @@ const Clients = () => {
                 {
                     method: isEditing ? 'PUT' : 'POST',
                     headers: authHeaders(),
-                    body: JSON.stringify(formData)
+                    body: JSON.stringify(payload)
                 }
             );
 
@@ -93,7 +99,7 @@ const Clients = () => {
         setIsModalOpen(false);
         setFormData({
             name: '', email: '', company: '', phone: '',
-            service_type: '', social_platform: '', preferred_contact: 'Phone', notes: '', status: 'New'
+            service_type: '', social_platform: '', preferred_contact: 'Unspecified', notes: '', status: 'New'
         });
     };
 
@@ -133,8 +139,9 @@ const Clients = () => {
     const handleEdit = (client) => {
         setFormData({
             ...client,
-            preferred_contact: client.preferred_contact || 'Phone'
+            preferred_contact: client.preferred_contact || 'Unspecified'
         });
+        setContactTouched(false);
         setIsModalOpen(true);
     };
 
@@ -229,9 +236,9 @@ const Clients = () => {
                                         <div style={{ display: 'flex', flexDirection: 'column', fontSize: '0.85rem' }}>
                                             <span>{client.phone}</span>
                                             <span style={{ color: 'var(--text-secondary)' }}>{client.email}</span>
-                                            {client.preferred_contact && (
+                                            {client.preferred_contact && client.preferred_contact !== 'Unspecified' && (
                                                 <span style={{ fontSize: '0.7rem', color: 'var(--accent)' }}>
-                                                    Pref: {client.preferred_contact}
+                                                    {t('preferred_contact')}: {CONTACT_KEYS[client.preferred_contact] ? t(CONTACT_KEYS[client.preferred_contact]) : client.preferred_contact}
                                                 </span>
                                             )}
                                         </div>
@@ -281,7 +288,7 @@ const Clients = () => {
             {/* Add / Edit Client Modal */}
             <Modal
                 isOpen={isModalOpen}
-                onClose={() => { setIsModalOpen(false); setFormData({ name: '', email: '', company: '', phone: '', service_type: '', social_platform: '', preferred_contact: 'Phone', notes: '', status: 'New' }); }}
+                onClose={() => { setIsModalOpen(false); setFormData({ name: '', email: '', company: '', phone: '', service_type: '', social_platform: '', preferred_contact: 'Unspecified', notes: '', status: 'New' }); }}
                 title={formData.id ? t('edit_client') : t('add_new_client')}
             >
                 <form onSubmit={handleSubmit}>
@@ -352,11 +359,16 @@ const Clients = () => {
                             <select
                                 name="preferred_contact"
                                 value={formData.preferred_contact}
-                                onChange={handleInputChange}
+                                onChange={(e) => { setContactTouched(true); handleInputChange(e); }}
                             >
+                                <option value="Unspecified">{t('contact_method_unspecified')}</option>
+                                {formData.preferred_contact && !CONTACT_KEYS[formData.preferred_contact] && (
+                                    <option value={formData.preferred_contact}>{formData.preferred_contact}</option>
+                                )}
                                 <option value="Phone">{t('contact_method_phone')}</option>
                                 <option value="Email">{t('contact_method_email')}</option>
                                 <option value="WhatsApp">{t('contact_method_whatsapp')}</option>
+                                <option value="NoPreference">{t('contact_method_none')}</option>
                             </select>
                         </div>
                     </div>

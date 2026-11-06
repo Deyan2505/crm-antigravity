@@ -120,9 +120,10 @@ test('all six forms (Portfolio + Learning, BG/EN/HE) are stored in clients and l
             assert.equal(row.company, s.company);
             assert.equal(row.price_range, '€600 – €850');
             assert.equal(row.service_type, 'Smart landing page, WhatsApp ordering');
-            assert.equal(row.preferred_contact, PORTFOLIO_TEXT[row.tally_form_id].contact[1][2]);
+            assert.equal(row.preferred_contact, 'WhatsApp');
         } else {
             assert.equal(row.project_type, s.topic);
+            assert.equal(row.preferred_contact, 'Unspecified'); // never Phone just because a phone was given
             assert.equal(row.price_range, '');
         }
     }

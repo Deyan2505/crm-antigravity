@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { normalizeContact } from './contact.js';
 import { ARIE_FORMS } from './arieForms.js';
 
 // Tally signs the exact raw JSON body: base64(HMAC-SHA256(rawBody, signingSecret)) in the `tally-signature` header.
@@ -91,7 +92,7 @@ export function parseArieSubmission(body, fieldKeys = {}) {
     const form = data && ARIE_FORMS[data.formId];
     if (!form) {
         const lead = parseTallyPayload(body, fieldKeys);
-        return lead && { ...lead, formId: (data && data.formId) || '', track: 'unknown', projectType: '', contactPref: '', answers: answersOf(data), missing: [] };
+        return lead && { ...lead, formId: (data && data.formId) || '', track: 'unknown', projectType: '', contactPref: 'Unspecified', answers: answersOf(data), missing: [] };
     }
     const submissionId = data.submissionId || data.responseId;
     if (!submissionId || !Array.isArray(data.fields)) return null;
@@ -119,7 +120,7 @@ export function parseArieSubmission(body, fieldKeys = {}) {
         company: get('company'),
         notes: get('notes', x => x.type === 'TEXTAREA'),
         projectType: form.track === 'portfolio' ? get('projectType') : get('topic'),
-        contactPref: get('contactPref'),
+        contactPref: normalizeContact(get('contactPref')), // one stable value; the original wording stays in answers
         // Portfolio: services chosen in the site's price calculator (hidden field), else the features ticked in the form
         services: (form.track === 'portfolio' && hidden('services')) || features,
         price_range: form.track === 'portfolio' ? hidden('price_range') : '',

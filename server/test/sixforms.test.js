@@ -35,7 +35,7 @@ for (const formId of ['q54MpG', 'rD5EDo', '9NBlNE']) {
         assert.equal(lead.phone, '+972500000000');
         assert.equal(lead.company, s.company);
         assert.equal(lead.projectType, t.project[1][4]); // "AI chatbot" in the form's language
-        assert.equal(lead.contactPref, t.contact[1][2]);
+        assert.equal(lead.contactPref, 'WhatsApp'); // the client's own wording (t.contact[1][2]) is normalized, same value in BG / EN / HE
         assert.equal(lead.services, 'Smart landing page, WhatsApp ordering'); // from the calculator
         assert.equal(lead.price_range, '€600 – €850');
         assert.equal(lead.features, `${t.features[1][1]}, ${t.features[1][2]}`);
@@ -198,11 +198,14 @@ test('each of the six forms, signed with its own (or the shared) secret, is stor
     assert.equal(byForm.q54MpG.track, 'portfolio'); assert.equal(byForm.zEjeEk.track, 'learning');
     assert.equal(byForm['9NBlNE'].name, 'דנה כהן'); assert.equal(byForm['9NBlNE'].lang, 'he');
     assert.equal(byForm.rD5EDo.project_type, 'AI chatbot');
-    assert.equal(byForm.rD5EDo.preferred_contact, 'Via WhatsApp');
+    assert.equal(byForm.rD5EDo.preferred_contact, 'WhatsApp');
+    assert.equal(byForm.LD90Dy.preferred_contact, 'Unspecified'); // Learning forms have no such question
     assert.equal(byForm.LD90Dy.project_type, 'Excel for beginners');
     assert.equal(byForm.q54MpG.status, 'New'); assert.equal(byForm.q54MpG.source, 'Tally');
     const lead = pool.tables.leads.find(l => l.data.form_id === 'q54MpG').data;
     assert.equal(lead.track, 'portfolio'); assert.equal(lead.project_type, 'AI чатбот');
+    assert.equal(lead.preferred_contact, 'WhatsApp'); // leads.data carries the normalized value too
+    assert.equal(pool.tables.leads.find(l => l.data.form_id === 'zEjeEk').data.preferred_contact, 'Unspecified');
     assert.ok(Array.isArray(lead.details.answers) && lead.details.answers.length >= 8);
 });
 

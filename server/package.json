@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "node --test test/tally.test.js test/sixforms.test.js",
+    "test": "node --test test/tally.test.js test/sixforms.test.js test/contact.test.js",
     "test:integration": "node --test test/arie.integration.test.js"
   },
   "dependencies": {
