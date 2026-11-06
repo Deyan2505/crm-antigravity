@@ -54,6 +54,15 @@ test('Portfolio without the calculator: services fall back to the ticked feature
     assert.equal(lead.lang, 'en'); // from the form, not from a hidden field
 });
 
+test('the chosen project is never replaced by the calculator services (all three Portfolio forms, with and without the calculator)', () => {
+    for (const formId of ['q54MpG', 'rD5EDo', '9NBlNE']) for (const withCalculator of [true, false]) {
+        const lead = parseArieSubmission(portfolioPayload(formId, 's', { projectIdx: 3, withCalculator }));
+        assert.equal(lead.projectType, PORTFOLIO_TEXT[formId].project[1][3], formId);
+        assert.notEqual(lead.projectType, lead.services);
+        if (withCalculator) { assert.equal(lead.services, 'Smart landing page, WhatsApp ordering'); assert.equal(lead.price_range, '€600 – €850'); }
+    }
+});
+
 test('new project types (AI automation, chatbot, business app, other) are read in all three languages', () => {
     for (const formId of ['q54MpG', 'rD5EDo', '9NBlNE']) for (const i of [3, 4, 5, 6, 7]) {
         assert.equal(parseArieSubmission(portfolioPayload(formId, 's', { projectIdx: i })).projectType, PORTFOLIO_TEXT[formId].project[1][i], formId + ' #' + i);

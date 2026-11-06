@@ -243,7 +243,8 @@ const Clients = () => {
                                             )}
                                         </div>
                                     </td>
-                                    <td>{client.service_type || '-'}</td>
+                                    {/* Portfolio enquiries: the project the client chose in the form (project_type); the calculator's services stay in service_type. Not chosen -> "Not specified", never a guessed service. */}
+                                    <td>{client.track === 'portfolio' ? (client.project_type || t('not_specified')) : (client.service_type || '-')}</td>
                                     <td>
                                         <button
                                             className={`status-badge ${getStatusColor(client.status)}`}
