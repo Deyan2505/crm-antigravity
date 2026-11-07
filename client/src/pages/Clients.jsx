@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Search, Plus, Filter, Edit2, Trash2, Mail } from 'lucide-react';
 import Modal from '../components/Modal';
 import { useLanguage } from '../context/LanguageContext';
@@ -218,7 +219,7 @@ const Clients = () => {
                                         <div className="client-name-cell">
                                             <div className="avatar-sm">{client.name.charAt(0)}</div>
                                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span className="font-medium">{client.name}</span>
+                                                <Link to={`/app/clients/${client.id}`} className="client-link font-medium" title={t('hub_open')}>{client.name}</Link>
                                                 <span className="text-xs text-gray-400">{client.company}</span>
                                             </div>
                                         </div>

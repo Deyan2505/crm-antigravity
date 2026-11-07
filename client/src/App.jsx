@@ -4,6 +4,7 @@ import { AuthProvider } from './context/AuthContext';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Clients from './pages/Clients';
+import ClientHub from './pages/ClientHub';
 import Login from './components/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import Leads from './pages/Leads';
@@ -28,6 +29,7 @@ function App() {
                         }>
                             <Route index element={<Dashboard />} />
                             <Route path="clients" element={<Clients />} />
+                            <Route path="clients/:id" element={<ClientHub />} />
                             <Route path="leads" element={<Leads />} />
                             <Route path="settings" element={<Settings />} />
                             <Route path="*" element={<h2>Not Found</h2>} />

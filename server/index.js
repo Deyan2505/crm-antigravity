@@ -12,6 +12,7 @@ import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { makeAuth, fail, clientsRouter, leadsRouter } from './crm.js';
+import { hubRouter } from './hub.js';
 
 dotenv.config();
 
@@ -179,6 +180,7 @@ app.use('/api/clients', clientsRouter({
         }).catch(e => console.error('Make.com Webhook failed:', e.message));
     }
 }));
+app.use('/api/clients', hubRouter({ pool, auth: authenticateToken })); // Client Hub 360: /:id/hub, /:id/activities
 app.use('/api/leads', leadsRouter({ pool, auth: authenticateToken }));
 
 app.get('/api/users', authenticateToken, async (req, res) => {

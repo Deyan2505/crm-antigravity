@@ -1,11 +1,11 @@
 # QA only: runs the CRM server tests against a throwaway PostgreSQL 16 container.
-# Triggered only by pushes to feature/six-form-tally and feature/crm-v2-stage1. Deploys nothing, uses no repository secrets,
+# Triggered only by pushes to feature/six-form-tally, feature/crm-v2-stage1 and feature/crm-v2-stage2a-client-hub. Deploys nothing, uses no repository secrets,
 # never sees the production DATABASE_URL. The database lives only as long as this job.
 name: CRM QA (six Tally forms)
 
 on:
   push:
-    branches: [feature/six-form-tally, feature/crm-v2-stage1]
+    branches: [feature/six-form-tally, feature/crm-v2-stage1, feature/crm-v2-stage2a-client-hub]
 
 permissions:
   contents: read
@@ -55,7 +55,7 @@ jobs:
       - name: Unit tests (parser, signatures, six forms over HTTP)
         run: npm test
 
-      - name: Migrations with psql on a separate database that already has CRM rows (001, 002, 002 again)
+      - name: Migrations with psql on a separate database that already has CRM rows (001, 002, 002 again, 003, 003 again)
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -d crm_test -c "CREATE DATABASE crm_migrate"
@@ -64,18 +64,25 @@ jobs:
           psql -v ON_ERROR_STOP=1 -c "INSERT INTO clients (name, email, status) VALUES ('Legacy A', 'a@legacy.invalid', 'Won'), ('Legacy B', 'b@legacy.invalid', 'New')"
           psql -v ON_ERROR_STOP=1 -c "INSERT INTO leads (source, data) VALUES ('Tally', '{}')"
           before=$(psql -At -c "SELECT md5(string_agg(id||name||email||status, ',' ORDER BY id)) FROM clients")
+          leads_before=$(psql -At -c "SELECT md5(string_agg(id||COALESCE(data,''), ',' ORDER BY id)) FROM leads")
           psql -v ON_ERROR_STOP=1 -f migrations/001_tally_submission.sql
           psql -v ON_ERROR_STOP=1 -f migrations/002_six_forms.sql
           psql -v ON_ERROR_STOP=1 -f migrations/002_six_forms.sql
+          psql -v ON_ERROR_STOP=1 -f migrations/003_client_hub.sql
+          psql -v ON_ERROR_STOP=1 -f migrations/003_client_hub.sql
           after=$(psql -At -c "SELECT md5(string_agg(id||name||email||status, ',' ORDER BY id)) FROM clients")
           test "$before" = "$after"
+          test "$(psql -At -c "SELECT md5(string_agg(id||COALESCE(data,''), ',' ORDER BY id)) FROM leads")" = "$leads_before"
+          test "$(psql -At -c "SELECT COUNT(*) FROM information_schema.columns WHERE (table_name='clients' AND column_name IN ('country','next_action','next_action_due')) OR (table_name='leads' AND column_name='client_id')")" = 4
+          test "$(psql -At -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='client_activities'")" = 1
+          test "$(psql -At -c "SELECT COUNT(*) FROM leads WHERE client_id IS NOT NULL")" = 0
           test "$(psql -At -c "SELECT COUNT(*) FROM information_schema.columns WHERE table_name='clients' AND column_name IN ('tally_submission_id','source','price_range','lang','tally_form_id','track','project_type','preferred_contact')")" = 8
           test "$(psql -At -c "SELECT COUNT(*) FROM pg_indexes WHERE tablename='clients' AND indexname='ux_clients_tally_submission_id' AND indexdef LIKE 'CREATE UNIQUE INDEX%'")" = 1
           test "$(psql -At -c "SELECT COUNT(*) FROM clients WHERE tally_submission_id IS NULL AND track IS NULL")" = 2
           psql -v ON_ERROR_STOP=1 -f migrations/check_schema_readonly.sql > /dev/null
           psql -v ON_ERROR_STOP=1 -f migrations/check_access_readonly.sql > /dev/null
           test "$(psql -At -c "SELECT COUNT(*) FROM clients")" = 2
-          echo "migrations OK: legacy rows unchanged, 8 columns, unique index, 002 re-runnable, read-only check runs"
+          echo "migrations OK: legacy rows unchanged, 8 columns, unique index, 002 and 003 re-runnable, hub columns + history table, leads.data untouched, read-only check runs"
 
       - name: Client tests (API error handling, no Demo Mode)
         working-directory: client

@@ -1,0 +1,21 @@
+/* App shell on phones (Stage 2A).
+   Until now the 260px sidebar never collapsed: on a phone it covered half of the screen and cut every page off, which made a responsive
+   Client Hub impossible. At <= 768px the sidebar becomes a compact top bar and each page gets the full width. Desktop is unchanged.
+   Logical properties only (the shell also runs right-to-left); a test in client/test/hub.test.js keeps it that way. */
+@media (max-width: 768px) {
+    .app-layout { flex-direction: column; height: 100dvh; }
+    .sidebar { flex: none; inline-size: 100%; flex-direction: row; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; border-inline-end: 0; border-block-end: 1px solid var(--border); box-shadow: none; overflow-x: auto; }
+    .sidebar { scrollbar-width: none; }
+    .sidebar::-webkit-scrollbar { display: none; }
+    .sidebar-header { margin: 0; padding: 0; gap: 0; flex: none; }
+    .logo-text, .sidebar-footer { display: none; }
+    .sidebar-nav { flex: 1; flex-direction: row; gap: 0.25rem; }
+    .nav-item { gap: 0.4rem; padding: 0.55rem 0.75rem; font-size: 0.85rem; white-space: nowrap; }
+    .nav-item svg { inline-size: 18px; block-size: 18px; }
+    .main-content { flex: 1; min-inline-size: 0; min-block-size: 0; }
+    .top-header { block-size: 56px; padding-inline: 1rem; }
+    .page-title { font-size: 1.15rem; }
+    .header-actions { gap: 0.75rem; }
+    .header-actions .user-name { display: none; }
+    .content-scroll { padding: 1rem; }
+}

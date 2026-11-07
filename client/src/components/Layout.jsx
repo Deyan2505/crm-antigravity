@@ -18,7 +18,8 @@ const Layout = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const titleKey = routeTitleKey[location.pathname.split('/').filter(Boolean).pop()] || 'dashboard';
+    // /app, /app/clients, /app/clients/12 ... : the section is the segment after "app" (the last one would be the client id)
+    const titleKey = routeTitleKey[location.pathname.split('/').filter(Boolean)[1]] || 'dashboard';
 
     const handleLogout = () => {
         logout();

@@ -24,7 +24,15 @@ export const makeAuth = secret => (req, res, next) => {
     });
 };
 
-const TEXT = ['email', 'phone', 'company', 'social_platform', 'preferred_contact', 'service_type', 'notes', 'lost_reason'];
+// country / next_action / next_action_due exist only after migrations/003_client_hub.sql (the hub UI offers them only then).
+const TEXT = ['email', 'phone', 'company', 'social_platform', 'preferred_contact', 'service_type', 'notes', 'lost_reason', 'country', 'next_action'];
+
+// 'YYYY-MM-DD' that is a real calendar day ('2026-02-31' is not): Postgres would reject it with a 500 otherwise.
+export const isDay = s => {
+    if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    const d = new Date(s + 'T00:00:00Z');
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s; // month 13 is an Invalid Date, 02-31 rolls over to 03-03
+};
 
 // Body -> { values: {column: value} } or { error }. Only keys present in the body are returned, so an update never
 // touches what it did not mention; '' clears a field (NULL). `name` is required on create and never empty.
@@ -57,10 +65,15 @@ export function parseClient(body, { create = false } = {}) {
         else if (typeof b.meeting_date === 'string' && !Number.isNaN(Date.parse(b.meeting_date))) values.meeting_date = b.meeting_date;
         else return { error: 'meeting_date must be a date' };
     }
+    if (b.next_action_due !== undefined) {
+        if (b.next_action_due === null || b.next_action_due === '') values.next_action_due = null;
+        else if (isDay(b.next_action_due)) values.next_action_due = b.next_action_due;
+        else return { error: 'next_action_due must be a date (YYYY-MM-DD)' };
+    }
     return { values };
 }
 
-const validId = s => /^[1-9]\d{0,9}$/.test(String(s));
+export const validId = s => /^[1-9]\d{0,9}$/.test(String(s));
 const pageOf = q => {
     const page = Math.max(1, parseInt(q.page) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(q.limit) || 50));
@@ -108,7 +121,11 @@ export function clientsRouter({ pool, auth, onCreated = () => {} }) {
             );
             if (result.rowCount === 0) return res.status(404).json({ error: 'Client not found', code: 'NOT_FOUND' });
             res.json({ message: 'Client updated successfully', id: result.rows[0].id, client: result.rows[0] });
-        } catch (err) { fail(res, err, 'PUT /api/clients/:id'); }
+        } catch (err) {
+            // undefined_column: country / next_action / next_action_due before migrations/003_client_hub.sql
+            if (err && err.code === '42703') return res.status(409).json({ error: 'Database migration 003 has not been applied yet', code: 'MIGRATION_REQUIRED' });
+            fail(res, err, 'PUT /api/clients/:id');
+        }
     });
 
     // A client that came from a Tally form keeps its row: deleting it would drop the key that stops the same submission
@@ -121,7 +138,11 @@ export function clientsRouter({ pool, auth, onCreated = () => {} }) {
             const exists = await pool.query('SELECT 1 FROM clients WHERE id = $1', [req.params.id]);
             if (exists.rowCount === 0) return res.status(404).json({ error: 'Client not found', code: 'NOT_FOUND' });
             res.status(409).json({ error: 'Clients created from Tally forms cannot be deleted yet (archive comes next)', code: 'ARCHIVE_REQUIRED' });
-        } catch (err) { fail(res, err, 'DELETE /api/clients/:id'); }
+        } catch (err) {
+            // client_activities.client_id is ON DELETE RESTRICT (migration 003): a client with entered history is kept.
+            if (err && err.code === '23503') return res.status(409).json({ error: 'This client has communication history and cannot be deleted', code: 'HAS_HISTORY' });
+            fail(res, err, 'DELETE /api/clients/:id');
+        }
     });
     return r;
 }
