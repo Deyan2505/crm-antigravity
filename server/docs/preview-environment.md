@@ -20,7 +20,7 @@ Nothing here touches production: another Render service, another Neon project, a
 | mail, owner notification, Make.com, Tally signatures | the server **refuses to start** if `EMAIL_USER`, `EMAIL_PASS`, `OWNER_NOTIFY_EMAIL`, `MAKE_CRM_WEBHOOK_URL`, `TALLY_SIGNING_SECRET`, `ARIE_TALLY_SIGNING_SECRET(S)`, `ARIE_TALLY_FIELD_KEYS` is set (names are logged, values never) | same |
 | public registration | refuses to start if `ALLOW_REGISTRATION=true`; the route is closed by default anyway | same |
 | browsers of other sites | CORS admits only `CORS_ORIGIN` (the preview frontend); the production frontend and localhost are not admitted | same |
-| the preview frontend writing to production | a Vercel Preview build fails if `VITE_API_URL` is the production API; a Preview build without its own `VITE_API_URL` runs in demo mode (no API at all). The committed `client/.env.local` has no influence when the variable is set in the Vercel project | `client/test/demo.test.js` (real builds) |
+| the preview frontend writing to production | The Vercel project has a `VITE_API_URL` variable for **Production and Preview** that holds the production API (and the committed `client/.env.local` holds it too). A Preview build ignores a production address and runs in demo mode (no API at all); only a Preview variable with another address, set for this branch, turns the real preview backend on. In every case the production address is not in a preview bundle | `client/test/demo.test.js` (real builds) |
 | the seed script touching a real database | refuses any database that has clients, inquiries or users; `--reset` only works on a database the script created itself (it leaves a `preview_marker` table) | `test/seed-preview.integration.test.js` |
 
 ## One-time setup (the owner does the steps that need a secret)
@@ -35,7 +35,7 @@ Nothing here touches production: another Render service, another Neon project, a
    It creates the schema, runs migrations 001-003 (only on this database), one test user `preview-test@example.invalid` with your password, 8 invented clients, 7 inquiries (one client has two), and communication history. It prints counts only. Run `node scripts/seed-preview.mjs --reset` to start over.
 3. **Render** - New -> **Blueprint** -> this repository -> branch `feature/crm-v2-stage2a-client-hub` -> Blueprint path `render-preview.yaml`. Render asks for `DATABASE_URL`: paste the Neon connection string there. Apply.
    Manual alternative (if the dashboard rejects a line of the blueprint): New -> Web Service, same repo and branch, Root Directory `server`, Build `npm ci`, Start `node index.js`, instance type **Free**, environment variables `PREVIEW_ISOLATED=1`, `NODE_VERSION=22`, `CORS_ORIGIN=<preview frontend address>`, `JWT_SECRET=<new long random string>`, `DATABASE_URL=<Neon connection string>`.
-4. **Vercel** - project `crm-antigravity` -> Settings -> Environment Variables -> add `VITE_API_URL` = the Render service address (`https://crm-server-preview-....onrender.com`), environment **Preview** only, Git branch `feature/crm-v2-stage2a-client-hub`. Then redeploy the branch. Keep Vercel Authentication on.
+4. **Vercel** - project `crm-antigravity` -> Settings -> Environment Variables -> **add** a second `VITE_API_URL` = the Render service address (`https://crm-server-preview-....onrender.com`), environment **Preview**, Git branch `feature/crm-v2-stage2a-client-hub`. Do not edit the existing `VITE_API_URL` (Production and Preview): a branch-specific Preview variable takes precedence over it for this branch only. Then redeploy the branch. Keep Vercel Authentication on.
 5. Sign in at the Preview address with `preview-test@example.invalid` and your password.
 
 ## Limits and consumption (checked 2026-11-07)
@@ -50,4 +50,4 @@ The preview adds hours only while someone uses it. Production (`crm-server`) use
 
 ## Teardown
 
-Render: suspend or delete `crm-server-preview`. Neon: delete the project `crm-preview-test`. Vercel: remove the `VITE_API_URL` variable of the Preview environment (the preview then falls back to the demo mode).
+Render: suspend or delete `crm-server-preview`. Neon: delete the project `crm-preview-test`. Vercel: remove the branch-specific `VITE_API_URL` (the preview then falls back to the demo mode).

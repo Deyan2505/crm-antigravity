@@ -134,12 +134,6 @@ test('PRODUCTION build (also a local build, and production even if DEMO_PREVIEW=
 });
 
 const PREVIEW_API = 'https://crm-preview-backend.example.invalid';
-function buildFails(env) {
-    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-build-'));
-    const e = { ...process.env }; delete e.VERCEL_ENV; delete e.DEMO_PREVIEW; delete e.VITE_API_URL; Object.assign(e, env);
-    try { execFileSync(process.execPath, [VITE, 'build', '--outDir', out, '--emptyOutDir', '--logLevel', 'error'], { cwd: ROOT, env: e, stdio: 'pipe' }); return null; }
-    catch (err) { return String(err.stderr || err.message); } finally { fs.rmSync(out, { recursive: true, force: true }); }
-}
 
 test('PREVIEW build with its own VITE_API_URL talks to that backend only: demo off, the committed .env.local (production API) has no influence', { timeout: 120000 }, () => {
     const js = bundle({ VERCEL_ENV: 'preview', VITE_API_URL: PREVIEW_API });
@@ -149,11 +143,13 @@ test('PREVIEW build with its own VITE_API_URL talks to that backend only: demo o
     assert.ok(js.includes('/api/auth/login'), 'the real sign-in code is there');
 });
 
-test('a PREVIEW build whose VITE_API_URL is the production API fails the build', { timeout: 120000 }, () => {
-    const err = buildFails({ VERCEL_ENV: 'preview', VITE_API_URL: 'https://' + PROD_API });
-    assert.ok(err && /must never point at the production API/.test(err), 'the build is refused: ' + err);
+test('a PREVIEW build whose VITE_API_URL is the production API (the Vercel "Production and Preview" variable) falls back to the demo: it can not reach production', { timeout: 120000 }, () => {
+    const js = bundle({ VERCEL_ENV: 'preview', VITE_API_URL: 'https://' + PROD_API });
+    assert.ok(js.includes(MARKER) && js.includes('demo.invalid'), 'runs on sample data');
+    assert.ok(!js.includes(PROD_API), 'the production API address is not in the preview bundle');
     // the same variable in a production build is just the normal configuration
-    assert.equal(buildFails({ VERCEL_ENV: 'production', VITE_API_URL: 'https://' + PROD_API }), null);
+    const prod = bundle({ VERCEL_ENV: 'production', VITE_API_URL: 'https://' + PROD_API });
+    assert.ok(prod.includes(PROD_API) && !prod.includes(MARKER));
 });
 
 test('PREVIEW build (VERCEL_ENV=preview) runs on sample data and contains no address of the real API', { timeout: 120000 }, () => {
