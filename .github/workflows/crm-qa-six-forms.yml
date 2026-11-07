@@ -48,7 +48,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
 
       - run: npm ci
 
@@ -84,7 +86,12 @@ jobs:
           test "$(psql -At -c "SELECT COUNT(*) FROM clients")" = 2
           echo "migrations OK: legacy rows unchanged, 8 columns, unique index, 002 and 003 re-runnable, hub columns + history table, leads.data untouched, read-only check runs"
 
-      - name: Client tests (API error handling, no Demo Mode)
+      # the client tests include real production / preview builds (no demo code in production), so they need vite
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Client tests (API error handling, no Demo Mode, Client Hub, preview build vs production build)
         working-directory: client
         run: npm test
 
