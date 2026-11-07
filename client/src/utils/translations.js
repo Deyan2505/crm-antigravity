@@ -135,7 +135,8 @@ export const translations = {
         hub_entry_edit: "Edit entry",
         hub_entry_edited: "edited",
         hub_text_required: "Enter the text of the entry",
-        hub_date_required: "Enter a valid date and time"
+        hub_date_required: "Enter a valid date and time",
+        demo_banner: "DEMO PREVIEW - sample data only, no database is connected. Changes stay in this browser tab and disappear on reload."
     },
     bg: {
         dashboard: "Табло",
@@ -273,7 +274,8 @@ export const translations = {
         hub_entry_edit: "Редактирай записа",
         hub_entry_edited: "редактиран",
         hub_text_required: "Въведете текст на записа",
-        hub_date_required: "Въведете валидна дата и час"
+        hub_date_required: "Въведете валидна дата и час",
+        demo_banner: "ДЕМО ПРЕГЛЕД - само примерни данни, няма връзка с база данни. Промените остават в този раздел на браузъра и изчезват при презареждане."
     },
     he: {
         dashboard: "לוח בקרה",
@@ -411,6 +413,7 @@ export const translations = {
         hub_entry_edit: "עריכת הרישום",
         hub_entry_edited: "נערך",
         hub_text_required: "הזינו את טקסט הרישום",
-        hub_date_required: "הזינו תאריך ושעה תקינים"
+        hub_date_required: "הזינו תאריך ושעה תקינים",
+        demo_banner: "תצוגת הדגמה - נתוני דוגמה בלבד, אין חיבור למסד נתונים. שינויים נשארים בלשונית זו ונעלמים ברענון."
     }
 };

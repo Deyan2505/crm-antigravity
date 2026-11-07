@@ -30,6 +30,7 @@ const Layout = () => {
         <div className="app-layout">
             <Sidebar />
             <main className="main-content">
+                {__DEMO_PREVIEW__ && <div className="demo-banner" role="status">{t('demo_banner')}</div>}
                 <header className="top-header">
                     <h2 className="page-title">{t(titleKey)}</h2>
                     <div className="header-actions">

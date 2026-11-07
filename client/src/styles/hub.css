@@ -2,6 +2,9 @@
    Logical properties only (inline/block, start/end): the page also runs right-to-left (Hebrew). No physical left/right below;
    a test in client/test/hub.test.js keeps it that way. Colours come from the theme variables in main.css (dark by default). */
 
+/* Preview banner (demo mode only, see src/utils/demo.js): always visible, impossible to mistake for the live CRM */
+.demo-banner { flex: none; padding: 0.45rem 1rem; text-align: center; font-size: 0.78rem; font-weight: 600; color: #1f2937; background: #fbbf24; }
+
 /* the client name in the clients table opens the hub */
 .client-link { color: var(--text-primary); text-decoration: none; }
 .client-link:hover { color: var(--accent); text-decoration: underline; }

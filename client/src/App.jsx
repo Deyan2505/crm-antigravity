@@ -18,7 +18,8 @@ function App() {
                 <BrowserRouter>
                     <Routes>
                         <Route path="/" element={<Landing />} />
-                        <Route path="/login" element={<Login />} />
+                        {/* preview: there is no sign-in (no credentials are ever typed into a preview), the app opens directly */}
+                        <Route path="/login" element={__DEMO_PREVIEW__ ? <Navigate to="/app" replace /> : <Login />} />
                         {/* public registration is closed: the old sign-up address (and the landing page buttons that point to it) lead to the sign-in page */}
                         <Route path="/signup" element={<Navigate to="/login" replace />} />
 

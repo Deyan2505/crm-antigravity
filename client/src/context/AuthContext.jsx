@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { API_URL, setUnauthorizedHandler } from '../utils/api';
+import { DEMO_USER } from '../utils/demoApi';
 
 const AuthContext = createContext();
 
@@ -10,6 +11,7 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        if (__DEMO_PREVIEW__) { setUser(DEMO_USER); setLoading(false); return; } // preview: no sign-in, no credentials, no API
         const storedUser = localStorage.getItem('user');
         const token = localStorage.getItem('token');
         if (storedUser && token) {
@@ -28,6 +30,7 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const login = async (email, password) => {
+        if (__DEMO_PREVIEW__) return { success: false, error: 'Sign-in is disabled in the demo preview' }; // never send credentials anywhere from a preview
         const response = await fetch(`${API_URL}/api/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -47,6 +50,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logout = () => {
+        if (__DEMO_PREVIEW__) return; // the preview has no session to end (it would only bounce between /login and /app)
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         setUser(null);
