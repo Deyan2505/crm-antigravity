@@ -13,6 +13,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { makeAuth, fail, clientsRouter, leadsRouter } from './crm.js';
 import { hubRouter } from './hub.js';
+import { isIsolated, isolationProblems, blockWebhooks, WEBHOOK_PREFIX, previewOrigins } from './isolation.js';
 
 dotenv.config();
 
@@ -20,6 +21,14 @@ if (!process.env.JWT_SECRET) {
     console.warn('⚠️  WARNING: JWT_SECRET is not set in .env. Using insecure default — set a strong secret in production!');
 }
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-antigravity';
+
+// Preview backend (PREVIEW_ISOLATED=1, see isolation.js): refuses to start with anything that could reach the real world. No effect in production.
+const ISOLATED = isIsolated();
+const isolationErrors = isolationProblems();
+if (isolationErrors.length) {
+    console.error('Preview isolation: refusing to start:\n - ' + isolationErrors.join('\n - '));
+    process.exit(1);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,7 +38,7 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 const PRODUCTION_FRONTEND = 'https://crm-antigravity-nine.vercel.app';
-const allowedOrigins = [
+const allowedOrigins = ISOLATED ? previewOrigins() : [
     'http://localhost:5173', 'http://localhost:4173', PRODUCTION_FRONTEND,
     ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()).filter(Boolean) : [])
 ];
@@ -37,6 +46,8 @@ const allowedOrigins = [
 app.use(cors({
     origin: (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin))
 }));
+// Preview backend: both Tally webhooks (/api/webhook, /api/webhook/arie-tally) are switched off explicitly, before any body parsing.
+if (ISOLATED) app.use(WEBHOOK_PREFIX, blockWebhooks);
 app.use(express.json({ verify: saveRawBody }));
 
 // Rate limiting for auth routes (10 attempts per 15 min per IP)
@@ -172,7 +183,7 @@ app.use('/api/clients', clientsRouter({
     // Trigger Make.com Webhook for manual entries (only if configured)
     onCreated: client => {
         const MAKE_WEBHOOK_URL = process.env.MAKE_CRM_WEBHOOK_URL;
-        if (!MAKE_WEBHOOK_URL) return;
+        if (!MAKE_WEBHOOK_URL || ISOLATED) return;
         fetch(MAKE_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

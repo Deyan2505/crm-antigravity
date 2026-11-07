@@ -133,6 +133,29 @@ test('PRODUCTION build (also a local build, and production even if DEMO_PREVIEW=
     }
 });
 
+const PREVIEW_API = 'https://crm-preview-backend.example.invalid';
+function buildFails(env) {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-build-'));
+    const e = { ...process.env }; delete e.VERCEL_ENV; delete e.DEMO_PREVIEW; delete e.VITE_API_URL; Object.assign(e, env);
+    try { execFileSync(process.execPath, [VITE, 'build', '--outDir', out, '--emptyOutDir', '--logLevel', 'error'], { cwd: ROOT, env: e, stdio: 'pipe' }); return null; }
+    catch (err) { return String(err.stderr || err.message); } finally { fs.rmSync(out, { recursive: true, force: true }); }
+}
+
+test('PREVIEW build with its own VITE_API_URL talks to that backend only: demo off, the committed .env.local (production API) has no influence', { timeout: 120000 }, () => {
+    const js = bundle({ VERCEL_ENV: 'preview', VITE_API_URL: PREVIEW_API });
+    assert.ok(js.includes(PREVIEW_API), 'the preview backend address is in the bundle');
+    assert.ok(!js.includes(PROD_API), 'the production API address is NOT in the bundle although client/.env.local contains it');
+    assert.ok(!js.includes(MARKER) && !js.includes('demo.invalid') && !js.includes('demo-sub-maria'), 'the demo mode is off: no sample data, real sign-in');
+    assert.ok(js.includes('/api/auth/login'), 'the real sign-in code is there');
+});
+
+test('a PREVIEW build whose VITE_API_URL is the production API fails the build', { timeout: 120000 }, () => {
+    const err = buildFails({ VERCEL_ENV: 'preview', VITE_API_URL: 'https://' + PROD_API });
+    assert.ok(err && /must never point at the production API/.test(err), 'the build is refused: ' + err);
+    // the same variable in a production build is just the normal configuration
+    assert.equal(buildFails({ VERCEL_ENV: 'production', VITE_API_URL: 'https://' + PROD_API }), null);
+});
+
 test('PREVIEW build (VERCEL_ENV=preview) runs on sample data and contains no address of the real API', { timeout: 120000 }, () => {
     const js = bundle({ VERCEL_ENV: 'preview' });
     assert.ok(js.includes(MARKER), 'demo data is in the preview build');

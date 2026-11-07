@@ -7,8 +7,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "node --test test/tally.test.js test/sixforms.test.js test/contact.test.js test/crm.test.js test/hub.test.js",
-    "test:integration": "node --test test/arie.integration.test.js test/hub.integration.test.js"
+    "test": "node --test test/tally.test.js test/sixforms.test.js test/contact.test.js test/crm.test.js test/hub.test.js test/isolation.test.js",
+    "test:integration": "node --test test/arie.integration.test.js test/hub.integration.test.js test/seed-preview.integration.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
